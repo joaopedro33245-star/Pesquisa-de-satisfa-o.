@@ -785,7 +785,7 @@ const App = {
   currentUser:null, currentProfile:null, menuAberto:false, _relFiltrado:[],
 };
 
-// ─── CORREÇÃO PRINCIPAL: Init com verificação de sessão antes de renderizar ───
+// ─── Init com verificação de sessão e tratamento de erros de conexão ──────────
 document.addEventListener('DOMContentLoaded', async () => {
   initSupabase();
 
@@ -800,13 +800,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     </div>
     <style>@keyframes spin{to{transform:rotate(360deg)}}</style>`;
 
-  // Verifica sessão salva antes de renderizar qualquer coisa
-  const session = await AuthService.getSession();
-  if (session) {
-    App.currentUser    = session.user;
-    App.currentProfile = await AuthService.getProfile(session.user.id);
-    renderApp();
-  } else {
+  try {
+    // Verifica sessão salva antes de renderizar qualquer coisa
+    const session = await AuthService.getSession();
+    if (session) {
+      App.currentUser    = session.user;
+      try {
+        App.currentProfile = await AuthService.getProfile(session.user.id);
+      } catch(_) {
+        App.currentProfile = null;
+      }
+      renderApp();
+    } else {
+      renderLogin();
+    }
+  } catch(e) {
+    // Qualquer erro de conexão cai aqui e mostra o login normalmente
+    console.warn('Erro ao verificar sessão:', e);
     renderLogin();
   }
 
@@ -814,7 +824,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   AuthService.onAuthChange(async (event, session) => {
     if (event === 'SIGNED_IN') {
       App.currentUser    = session.user;
-      App.currentProfile = await AuthService.getProfile(session.user.id);
+      try {
+        App.currentProfile = await AuthService.getProfile(session.user.id);
+      } catch(_) {
+        App.currentProfile = null;
+      }
       renderApp();
     }
     if (event === 'SIGNED_OUT') {
