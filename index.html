@@ -223,6 +223,13 @@ td{padding:12px 14px;font-size:13px;color:var(--text2);}
 .user-menu-item:hover{background:rgba(255,255,255,.06);color:var(--text);}
 .user-menu-item.danger{color:var(--red2);}
 .user-menu-item.danger:hover{background:var(--red-bg);}
+
+/* ─── Admin Quick Actions ────────────────────────────────────────────────────── */
+.nav-item.danger-nav { color: var(--red2) !important; }
+.nav-item.danger-nav:hover { background: var(--red-bg) !important; color: var(--red2) !important; }
+.nav-item.admin-nav { color: var(--amber2) !important; }
+.nav-item.admin-nav:hover { background: var(--amber-bg) !important; color: var(--amber2) !important; }
+.admin-only { display: none; }
   </style>
 </head>
 <body>
@@ -867,6 +874,7 @@ function renderApp() {
 
 function buildNav() {
   const nav = document.getElementById('nav');
+  const isAdmin = App.currentProfile?.perfil === 'admin';
   const items = [
     { id:'dashboard',  icon:'📊', label:'Dashboard' },
     { id:'entregas',   icon:'📦', label:'Entregas' },
@@ -881,6 +889,20 @@ function buildNav() {
         <span>${i.label}</span>
         ${i.badge?`<span class="nav-badge ${i.urgent?'nav-badge-red':''}" id="${i.badge}" style="display:none">0</span>`:''}
       </button>`).join('');
+
+  // Ações admin no sidebar
+  if (isAdmin) {
+    nav.innerHTML += `
+      <div class="nav-label" style="margin-top:20px">Administração</div>
+      <button class="nav-item admin-nav" onclick="abrirCriarUsuario()">
+        <span class="nav-icon">👤</span>
+        <span>Criar Usuário</span>
+      </button>
+      <button class="nav-item danger-nav" onclick="abrirLimparDados()">
+        <span class="nav-icon">🗑</span>
+        <span>Limpar Dados</span>
+      </button>`;
+  }
 }
 
 async function goto(page) {
@@ -1569,6 +1591,259 @@ function show(id,v){const el=qs(`#${id}`);if(el)el.style.display=v?'block':'none
 function hoje(){return new Date().toISOString().split('T')[0];}
 function fmtDate(d){if(!d)return'—';const[y,m,day]=String(d).split('-');return day&&m&&y?`${day}/${m}/${y}`:d;}
 function esc(v){return String(v||'').replace(/"/g,'""');}
+
+// ─── Limpar Dados (Admin) ─────────────────────────────────────────────────────
+function abrirLimparDados() {
+  openModal(`
+    <div class="modal-hd">
+      <div class="modal-title">🗑 Limpar Dados de Teste</div>
+      <button class="btn-x" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-bd">
+      <div style="background:var(--red-bg);border:1px solid rgba(239,68,68,.3);border-radius:10px;padding:14px 16px;margin-bottom:20px">
+        <div style="color:var(--red2);font-weight:700;margin-bottom:4px">⚠️ Atenção — ação irreversível</div>
+        <div style="color:var(--text2);font-size:13px">Os dados excluídos não poderão ser recuperados. Selecione com cuidado o que deseja apagar.</div>
+      </div>
+
+      <div class="sec-title">O que deseja excluir?</div>
+
+      <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:20px">
+        <label style="display:flex;align-items:center;gap:12px;padding:14px 16px;background:rgba(255,255,255,.03);border:1px solid var(--border2);border-radius:10px;cursor:pointer">
+          <input type="checkbox" id="del-sat" style="width:18px;height:18px;accent-color:var(--red);cursor:pointer" />
+          <div>
+            <div style="font-weight:700;font-size:13px">📋 Pesquisas de Satisfação</div>
+            <div class="muted small">Tabela customer_satisfaction — todas as pesquisas registradas</div>
+          </div>
+        </label>
+        <label style="display:flex;align-items:center;gap:12px;padding:14px 16px;background:rgba(255,255,255,.03);border:1px solid var(--border2);border-radius:10px;cursor:pointer">
+          <input type="checkbox" id="del-ent" style="width:18px;height:18px;accent-color:var(--red);cursor:pointer" />
+          <div>
+            <div style="font-weight:700;font-size:13px">📦 Entregas</div>
+            <div class="muted small">Tabela service_deliveries — todas as entregas cadastradas</div>
+          </div>
+        </label>
+        <label style="display:flex;align-items:center;gap:12px;padding:14px 16px;background:rgba(255,255,255,.03);border:1px solid var(--border2);border-radius:10px;cursor:pointer">
+          <input type="checkbox" id="del-sac" style="width:18px;height:18px;accent-color:var(--red);cursor:pointer" />
+          <div>
+            <div style="font-weight:700;font-size:13px">🆘 SAC — Atendimentos</div>
+            <div class="muted small">Tabela sac_atendimentos + sac_historico — todos os casos SAC</div>
+          </div>
+        </label>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Digite <strong style="color:var(--red2)">CONFIRMAR</strong> para prosseguir</label>
+        <input class="form-ctrl" id="del-confirm" placeholder="CONFIRMAR" oninput="checarConfirmacao()" />
+      </div>
+    </div>
+    <div class="modal-ft">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn" id="btn-del-exec"
+        style="background:var(--red);color:#fff;opacity:.4;cursor:not-allowed"
+        disabled onclick="executarLimpeza()">
+        🗑 Excluir Selecionados
+      </button>
+    </div>`);
+}
+
+function checarConfirmacao() {
+  const ok = val('del-confirm').trim() === 'CONFIRMAR';
+  const algum = qs('#del-sat')?.checked || qs('#del-ent')?.checked || qs('#del-sac')?.checked;
+  const btn = qs('#btn-del-exec');
+  if (!btn) return;
+  btn.disabled = !(ok && algum);
+  btn.style.opacity = (ok && algum) ? '1' : '.4';
+  btn.style.cursor  = (ok && algum) ? 'pointer' : 'not-allowed';
+}
+
+async function executarLimpeza() {
+  const delSat = qs('#del-sat')?.checked;
+  const delEnt = qs('#del-ent')?.checked;
+  const delSac = qs('#del-sac')?.checked;
+
+  if (!delSat && !delEnt && !delSac) { toast('Selecione ao menos uma opção.','err'); return; }
+  if (val('del-confirm').trim() !== 'CONFIRMAR') { toast('Digite CONFIRMAR para prosseguir.','err'); return; }
+
+  load(true);
+  try {
+    const erros = [];
+
+    if (delSat) {
+      const { error } = await sb.from('customer_satisfaction').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      if (error) erros.push('Pesquisas: ' + error.message);
+    }
+    if (delEnt) {
+      const { error } = await sb.from('service_deliveries').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      if (error) erros.push('Entregas: ' + error.message);
+    }
+    if (delSac) {
+      const { error: e1 } = await sb.from('sac_historico').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      const { error: e2 } = await sb.from('sac_atendimentos').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      if (e1) erros.push('Histórico SAC: ' + e1.message);
+      if (e2) erros.push('Atendimentos SAC: ' + e2.message);
+    }
+
+    if (erros.length > 0) {
+      toast('Erros: ' + erros.join(' | '), 'err');
+    } else {
+      const itens = [delSat&&'pesquisas', delEnt&&'entregas', delSac&&'SAC'].filter(Boolean).join(', ');
+      toast(`✅ Dados excluídos: ${itens}`);
+      closeModal();
+      await goto('dashboard');
+    }
+  } catch(e) { toast('Erro: ' + e.message, 'err'); }
+  finally { load(false); }
+}
+
+// ─── Criar Usuário (Admin) ────────────────────────────────────────────────────
+function abrirCriarUsuario() {
+  openModal(`
+    <div class="modal-hd">
+      <div class="modal-title">👤 Criar Novo Usuário</div>
+      <button class="btn-x" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-bd">
+      <div style="background:var(--blue-bg);border:1px solid rgba(59,130,246,.25);border-radius:10px;padding:12px 16px;margin-bottom:20px;font-size:13px;color:var(--text2)">
+        ℹ️ O usuário receberá um e-mail de confirmação do Supabase para ativar a conta.
+      </div>
+
+      <div class="row2">
+        <div class="form-group">
+          <label class="form-label">Nome Completo <span style="color:var(--red)">*</span></label>
+          <input class="form-ctrl" id="nu-nome" placeholder="Ex: João Silva" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">E-mail <span style="color:var(--red)">*</span></label>
+          <input class="form-ctrl" id="nu-email" type="email" placeholder="joao@empresa.com" />
+        </div>
+      </div>
+      <div class="row2">
+        <div class="form-group">
+          <label class="form-label">Senha <span style="color:var(--red)">*</span></label>
+          <input class="form-ctrl" id="nu-senha" type="password" placeholder="Mínimo 6 caracteres" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Perfil de Acesso <span style="color:var(--red)">*</span></label>
+          <select class="form-ctrl" id="nu-perfil">
+            <option value="operador">Operador — acesso geral</option>
+            <option value="sac">SAC — foco em atendimentos</option>
+            <option value="admin">Admin — acesso total</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Filial (opcional)</label>
+        <input class="form-ctrl" id="nu-filial" placeholder="Ex: Fortaleza" />
+      </div>
+
+      <div id="nu-resultado" style="display:none"></div>
+    </div>
+    <div class="modal-ft">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="criarUsuario()">👤 Criar Usuário</button>
+    </div>`);
+}
+
+async function criarUsuario() {
+  const nome   = val('nu-nome').trim();
+  const email  = val('nu-email').trim();
+  const senha  = val('nu-senha');
+  const perfil = val('nu-perfil');
+  const filial = val('nu-filial').trim() || null;
+
+  if (!nome)  { toast('Informe o nome.','err'); return; }
+  if (!email) { toast('Informe o e-mail.','err'); return; }
+  if (senha.length < 6) { toast('A senha deve ter ao menos 6 caracteres.','err'); return; }
+
+  load(true);
+  try {
+    // 1. Criar o usuário na autenticação do Supabase via Admin API
+    const { data, error } = await sb.auth.admin.createUser({
+      email,
+      password: senha,
+      email_confirm: true,   // já confirma o e-mail automaticamente
+      user_metadata: { nome, perfil, filial },
+    });
+
+    if (error) throw error;
+
+    // 2. Inserir/atualizar o perfil na tabela profiles
+    const { error: pe } = await sb.from('profiles').upsert({
+      id:     data.user.id,
+      nome,
+      email,
+      perfil,
+      filial,
+    });
+    if (pe) throw pe;
+
+    // Mostrar resultado de sucesso dentro do modal
+    const res = qs('#nu-resultado');
+    if (res) {
+      res.style.display = 'block';
+      res.innerHTML = `
+        <div style="background:var(--green-bg);border:1px solid rgba(16,185,129,.3);border-radius:10px;padding:14px 16px;margin-top:4px">
+          <div style="color:var(--green2);font-weight:700;margin-bottom:6px">✅ Usuário criado com sucesso!</div>
+          <div style="font-size:13px;color:var(--text2)">
+            <div><strong>Nome:</strong> ${nome}</div>
+            <div><strong>E-mail:</strong> ${email}</div>
+            <div><strong>Perfil:</strong> ${perfil}</div>
+            ${filial?`<div><strong>Filial:</strong> ${filial}</div>`:''}
+          </div>
+        </div>`;
+    }
+
+    // Limpar campos
+    ['nu-nome','nu-email','nu-senha','nu-filial'].forEach(id => {
+      const el = qs('#'+id); if (el) el.value = '';
+    });
+
+  } catch(e) {
+    // Se a API admin não estiver disponível, usar signUp normal
+    if (e.message?.includes('not allowed') || e.message?.includes('admin')) {
+      await criarUsuarioSignUp(nome, email, senha, perfil, filial);
+    } else {
+      toast('Erro: ' + e.message, 'err');
+    }
+  }
+  finally { load(false); }
+}
+
+// Fallback: usar signUp público (usuário precisará confirmar e-mail)
+async function criarUsuarioSignUp(nome, email, senha, perfil, filial) {
+  try {
+    const { data, error } = await sb.auth.signUp({
+      email,
+      password: senha,
+      options: { data: { nome, perfil, filial } },
+    });
+    if (error) throw error;
+
+    if (data.user) {
+      await sb.from('profiles').upsert({ id: data.user.id, nome, email, perfil, filial });
+    }
+
+    const res = qs('#nu-resultado');
+    if (res) {
+      res.style.display = 'block';
+      res.innerHTML = `
+        <div style="background:var(--amber-bg);border:1px solid rgba(245,158,11,.3);border-radius:10px;padding:14px 16px;margin-top:4px">
+          <div style="color:var(--amber2);font-weight:700;margin-bottom:6px">⚠️ Usuário criado — confirmação pendente</div>
+          <div style="font-size:13px;color:var(--text2)">
+            Um e-mail de confirmação foi enviado para <strong>${email}</strong>.<br>
+            O usuário precisará confirmar antes de fazer login.<br><br>
+            <strong>Perfil:</strong> ${perfil}${filial?` · <strong>Filial:</strong> ${filial}`:''}
+          </div>
+        </div>`;
+    }
+    ['nu-nome','nu-email','nu-senha','nu-filial'].forEach(id => {
+      const el = qs('#'+id); if (el) el.value = '';
+    });
+  } catch(e) {
+    toast('Erro ao criar usuário: ' + e.message, 'err');
+  }
+}
+
 function str(r,...keys){for(const k of keys){const v=r[k];if(v!=null&&v!=='')return String(v).trim();}return'';}
   </script>
 </body>
