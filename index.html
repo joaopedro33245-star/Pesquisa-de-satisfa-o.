@@ -1,9 +1,10 @@
+
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SatisfazTech — Pesquisa Pós-Entrega</title>
+  <title>SatisfazTech — Pesquisa Pós-Entrega & Manutenção</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📋</text></svg>" />
   <style>
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap');
@@ -295,6 +296,50 @@ async function getSatisfactionByDelivery(deliveryId) {
   return data;
 }
 
+// ─── Manutenção: Data Layer ───────────────────────────────────────────────────
+async function getMaintenanceOrders(filters = {}) {
+  let q = sb.from('maintenance_orders').select('*').order('created_at', { ascending: false });
+  if (filters.status)   q = q.eq('status_pesquisa', filters.status);
+  if (filters.filial)   q = q.eq('filial', filters.filial);
+  if (filters.tecnico)  q = q.eq('tecnico_responsavel', filters.tecnico);
+  if (filters.tipo)     q = q.eq('tipo_manutencao', filters.tipo);
+  if (filters.dateFrom) q = q.gte('data_execucao', filters.dateFrom);
+  if (filters.dateTo)   q = q.lte('data_execucao', filters.dateTo);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data || [];
+}
+async function insertMaintenanceOrders(rows) {
+  const { data, error } = await sb.from('maintenance_orders').insert(rows).select();
+  if (error) throw error;
+  return data;
+}
+async function updateMaintenanceStatus(id, status) {
+  const { error } = await sb.from('maintenance_orders').update({ status_pesquisa: status }).eq('id', id);
+  if (error) throw error;
+}
+async function getMaintenanceSatisfactions(filters = {}) {
+  let q = sb.from('maintenance_satisfaction').select('*').order('created_at', { ascending: false });
+  if (filters.filial)   q = q.eq('filial', filters.filial);
+  if (filters.tecnico)  q = q.eq('tecnico_responsavel', filters.tecnico);
+  if (filters.status)   q = q.eq('status', filters.status);
+  if (filters.dateFrom) q = q.gte('data_ligacao', filters.dateFrom);
+  if (filters.dateTo)   q = q.lte('data_ligacao', filters.dateTo);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data || [];
+}
+async function insertMaintenanceSatisfaction(row) {
+  const { data, error } = await sb.from('maintenance_satisfaction').insert([row]).select();
+  if (error) throw error;
+  return data[0];
+}
+async function getManutSatByOrder(orderId) {
+  const { data, error } = await sb.from('maintenance_satisfaction').select('*').eq('order_id', orderId).maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
 async function getDashboardStats() {
   const [deliveries, satisfactions] = await Promise.all([getDeliveries(), getSatisfactions()]);
   const pendentes   = deliveries.filter(d => d.status_pesquisa === 'pendente').length;
@@ -455,7 +500,7 @@ async function renderLogin() {
         <div class="login-brand">
           <div class="login-icon">📋</div>
           <h1>SatisfazTech</h1>
-          <p>Pesquisa Pós-Entrega</p>
+          <p>Pesquisa Pós-Entrega & Manutenção</p>
         </div>
         <form id="form-login" onsubmit="handleLogin(event)">
           <div class="form-group">
@@ -781,6 +826,7 @@ function fmtDatetime(d) {
 
 const App = {
   page:'dashboard', deliveries:[], satisfactions:[], sacAtendimentos:[],
+  manutOrders:[], manutSel:null, togglesM:{}, importManutRows:[],
   toggles:{}, importRows:[], entregaSel:null,
   currentUser:null, currentProfile:null, menuAberto:false, _relFiltrado:[],
 };
@@ -847,7 +893,7 @@ function renderApp() {
         <div class="sidebar-brand">
           <div class="brand-icon">📋</div>
           <div class="brand-name">SatisfazTech</div>
-          <div class="brand-sub">Pesquisa Pós-Entrega</div>
+          <div class="brand-sub">Pesquisa Pós-Entrega & Manutenção</div>
         </div>
         <nav class="sidebar-nav" id="nav"></nav>
         <div class="sidebar-footer">v2.0 · Powered by Supabase</div>
@@ -893,6 +939,8 @@ function buildNav() {
     { id:'dashboard',  icon:'📊', label:'Dashboard' },
     { id:'entregas',   icon:'📦', label:'Entregas' },
     { id:'pesquisa',   icon:'📋', label:'Pesquisa', badge:'badge-pend' },
+    { id:'manutencoes',icon:'🔧', label:'Manutenções' },
+    { id:'pesq-manut', icon:'🛠️', label:'Pesq. Manutenção', badge:'badge-manut' },
     { id:'sac',        icon:'🆘', label:'SAC', badge:'badge-sac', urgent:true },
     { id:'relatorios', icon:'📈', label:'Relatórios' },
   ];
@@ -926,6 +974,8 @@ async function goto(page) {
     dashboard:  ['📊 Dashboard',   'Visão geral das pesquisas'],
     entregas:   ['📦 Entregas',    'Gerenciar entregas e serviços concluídos'],
     pesquisa:   ['📋 Pesquisa',    'Registrar pesquisa de satisfação pós-entrega'],
+    manutencoes:['🔧 Manutenções', 'Gerenciar ordens de manutenção'],
+    'pesq-manut':['🛠️ Pesq. Manutenção','Pesquisa de satisfação de manutenções realizadas'],
     sac:        ['🆘 SAC',         'Atendimento de clientes com nota abaixo de 8'],
     relatorios: ['📈 Relatórios',  'Análise de desempenho e exportação'],
   };
@@ -935,11 +985,13 @@ async function goto(page) {
   load(true);
   try {
     const pg = qs('#page');
-    if (page === 'dashboard')  await pageDashboard(pg);
-    if (page === 'entregas')   await pageEntregas(pg);
-    if (page === 'pesquisa')   await pagePesquisa(pg);
-    if (page === 'sac')        await pageSac(pg);
-    if (page === 'relatorios') await pageRelatorios(pg);
+    if (page === 'dashboard')   await pageDashboard(pg);
+    if (page === 'entregas')    await pageEntregas(pg);
+    if (page === 'pesquisa')    await pagePesquisa(pg);
+    if (page === 'manutencoes') await pageManutencoes(pg);
+    if (page === 'pesq-manut')  await pagePesqManut(pg);
+    if (page === 'sac')         await pageSac(pg);
+    if (page === 'relatorios')  await pageRelatorios(pg);
     await atualizarBadges();
   } catch(e) {
     qs('#page').innerHTML = err(e.message);
@@ -948,24 +1000,41 @@ async function goto(page) {
 
 async function atualizarBadges() {
   try {
-    const [pend, sacStats] = await Promise.all([getDeliveries({ status:'pendente' }), SacService.getStats()]);
+    const [pend, sacStats, manutPend] = await Promise.all([
+      getDeliveries({ status:'pendente' }),
+      SacService.getStats(),
+      getMaintenanceOrders({ status:'pendente' }),
+    ]);
     const bp = qs('#badge-pend');
     if (bp) { bp.textContent = pend.length; bp.style.display = pend.length > 0 ? '' : 'none'; }
     const bs = qs('#badge-sac');
     const sacPend = sacStats.pendentes + sacStats.vencidos;
     if (bs) { bs.textContent = sacPend; bs.style.display = sacPend > 0 ? '' : 'none'; }
+    const bm = qs('#badge-manut');
+    if (bm) { bm.textContent = manutPend.length; bm.style.display = manutPend.length > 0 ? '' : 'none'; }
   } catch {}
 }
 
 async function pageDashboard(el) {
-  const [stats, sacStats, sats] = await Promise.all([getDashboardStats(), SacService.getStats(), getSatisfactions()]);
+  const [stats, sacStats, sats, manutOrders, manutSats] = await Promise.all([
+    getDashboardStats(), SacService.getStats(), getSatisfactions(),
+    getMaintenanceOrders(), getMaintenanceSatisfactions(),
+  ]);
   const distNotas = [0,0,0,0,0,0,0,0,0,0,0];
   sats.filter(s=>s.nota_atendimento!=null).forEach(s => distNotas[s.nota_atendimento]++);
   const maxDist = Math.max(...distNotas, 1);
   const pctSat  = sats.length > 0 ? ((sats.filter(s=>s.nota_atendimento>=8).length/sats.length)*100).toFixed(0) : 0;
   const pctSac  = sats.length > 0 ? ((sats.filter(s=>s.enviado_para_sac).length/sats.length)*100).toFixed(0) : 0;
+
+  // Manutenção stats
+  const mPend = manutOrders.filter(o => o.status_pesquisa === 'pendente').length;
+  const mResp = manutSats.filter(s => ['respondido','concluido'].includes(s.status)).length;
+  const mNotas = manutSats.filter(s => s.nota_atendimento != null);
+  const mMedia = mNotas.length > 0 ? (mNotas.reduce((a,b)=>a+b.nota_atendimento,0)/mNotas.length).toFixed(1) : '—';
+  const mProb  = manutSats.filter(s => s.problema_reincidente).length;
+
   el.innerHTML = `
-    <div class="sec-title">Pesquisas de Satisfação</div>
+    <div class="sec-title">Pesquisas de Satisfação — Entregas</div>
     <div class="kpi-grid mb20">
       ${kpi('blue','📦','Total Entregas',stats.totalEntregas,'cadastradas')}
       ${kpi('amber','⏳','Pendentes',stats.pendentes,'aguardando contato')}
@@ -973,6 +1042,15 @@ async function pageDashboard(el) {
       ${kpi('purple','⭐','Média Geral',stats.mediaGeral??'—','nota de satisfação')}
       ${kpi('green','😊','Satisfeitos (≥8)',sats.filter(s=>s.nota_atendimento>=8).length,`${pctSat}% do total`)}
       ${kpi('red','😞','Insatisfeitos (<8)',sats.filter(s=>s.nota_atendimento!=null&&s.nota_atendimento<8).length,`${pctSac}% → SAC`)}
+    </div>
+    <div class="sec-title">Pesquisas de Satisfação — Manutenções</div>
+    <div class="kpi-grid mb20">
+      ${kpi('blue','🔧','Total Manutenções',manutOrders.length,'cadastradas')}
+      ${kpi('amber','⏳','Pendentes',mPend,'aguardando contato')}
+      ${kpi('green','✅','Respondidas',mResp,'pesquisas concluídas')}
+      ${kpi('purple','⭐','Média Geral',mMedia,'nota de satisfação')}
+      ${kpi('red','🔄','Reincidentes',mProb,'problemas que voltaram')}
+      ${kpi('green','😊','Satisfeitos (≥8)',mNotas.filter(n=>n.nota_atendimento>=8).length,`${mNotas.length>0?((mNotas.filter(n=>n.nota_atendimento>=8).length/mNotas.length)*100).toFixed(0):0}%`)}
     </div>
     <div class="sec-title">SAC</div>
     <div class="kpi-grid mb20">
@@ -1267,6 +1345,493 @@ async function salvarPesquisa(e) {
     toast(msg);
     App.entregaSel=null;
     await pagePesquisa(qs('#page'));
+    await atualizarBadges();
+  } catch(er) { toast('Erro: '+er.message,'err'); }
+  finally { load(false); }
+}
+
+// ─── Manutenções: Listagem ────────────────────────────────────────────────────
+async function pageManutencoes(el) {
+  const list = await getMaintenanceOrders();
+  App.manutOrders = list;
+  const filiais  = [...new Set(list.map(d=>d.filial).filter(Boolean))].sort();
+  const tecnicos = [...new Set(list.map(d=>d.tecnico_responsavel).filter(Boolean))].sort();
+  const tipos    = [...new Set(list.map(d=>d.tipo_manutencao).filter(Boolean))].sort();
+  el.innerHTML = `
+    <div class="flex-c gap12 mb20" style="justify-content:space-between;flex-wrap:wrap">
+      <span class="muted small">${list.length} ordens de manutenção</span>
+      <div class="flex-c gap12">
+        <button class="btn btn-ghost" onclick="openImportManut()">⬆ Importar CSV/XLSX</button>
+        <button class="btn btn-primary" onclick="openNovaManut()">＋ Nova Manutenção</button>
+      </div>
+    </div>
+    <div class="filters">
+      <div class="form-group"><label class="form-label">Status</label>
+        <select class="form-ctrl" id="fm-status" onchange="filtrarManut()" style="min-width:140px">
+          <option value="">Todos</option>
+          <option>pendente</option><option>respondido</option>
+          <option>nao_atendeu</option><option>remarcar</option><option>concluido</option>
+        </select>
+      </div>
+      <div class="form-group"><label class="form-label">Tipo</label>
+        <select class="form-ctrl" id="fm-tipo" onchange="filtrarManut()" style="min-width:140px">
+          <option value="">Todos</option>${tipos.map(t=>`<option>${t}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group"><label class="form-label">Filial</label>
+        <select class="form-ctrl" id="fm-filial" onchange="filtrarManut()" style="min-width:140px">
+          <option value="">Todas</option>${filiais.map(f=>`<option>${f}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group"><label class="form-label">Técnico</label>
+        <select class="form-ctrl" id="fm-tecnico" onchange="filtrarManut()" style="min-width:160px">
+          <option value="">Todos</option>${tecnicos.map(t=>`<option>${t}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group"><label class="form-label">Buscar</label>
+        <input class="form-ctrl" id="fm-busca" placeholder="Nome ou código…" oninput="filtrarManut()" style="min-width:200px" />
+      </div>
+    </div>
+    <div class="card" style="overflow:hidden">
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>Código</th><th>Cliente</th><th>Filial</th><th>Técnico</th><th>Tipo</th><th>Data</th><th>Status</th><th>Ações</th></tr></thead>
+        <tbody id="tb-manut">${list.length===0?`<tr><td colspan="8">${emptyState('🔧','Nenhuma manutenção','Importe ou cadastre')}</td></tr>`:list.map(rowManut).join('')}</tbody>
+      </table></div>
+    </div>`;
+}
+
+function rowManut(d) {
+  const tipoLabel = {'preventiva':'🟢 Preventiva','corretiva':'🟠 Corretiva','emergencial':'🔴 Emergencial'}[d.tipo_manutencao] || d.tipo_manutencao || '—';
+  return `<tr id="mrow-${d.id}">
+    <td class="td-mono">${d.codigo_cliente||'—'}</td>
+    <td class="td-main">${d.nome_cliente||'—'}</td>
+    <td>${d.filial||'—'}</td>
+    <td>${d.tecnico_responsavel||'—'}</td>
+    <td>${tipoLabel}</td>
+    <td>${fmtDate(d.data_execucao)}</td>
+    <td>${badgeStatus(d.status_pesquisa)}</td>
+    <td>${d.status_pesquisa==='pendente'
+      ?`<button class="btn btn-primary btn-sm" onclick="irParaPesqManut('${d.id}')">📋 Pesquisar</button>`
+      :`<button class="btn btn-ghost btn-sm" onclick="verDetalhesManut('${d.id}')">👁 Ver</button>`}
+    </td>
+  </tr>`;
+}
+
+function filtrarManut() {
+  const status  = val('fm-status');
+  const tipo    = val('fm-tipo');
+  const filial  = val('fm-filial');
+  const tecnico = val('fm-tecnico');
+  const busca   = val('fm-busca').toLowerCase();
+  qs('#tb-manut')?.querySelectorAll('tr').forEach(row => {
+    const t = row.textContent.toLowerCase();
+    const ok = (!status||t.includes(statusLabel(status).toLowerCase()))
+      && (!tipo||t.includes(tipo.toLowerCase()))
+      && (!filial||t.includes(filial.toLowerCase()))
+      && (!tecnico||t.includes(tecnico.toLowerCase()))
+      && (!busca||t.includes(busca));
+    row.style.display = ok ? '' : 'none';
+  });
+}
+
+function openNovaManut() {
+  openModal(`
+    <div class="modal-hd"><div class="modal-title">＋ Nova Manutenção</div><button class="btn-x" onclick="closeModal()">✕</button></div>
+    <div class="modal-bd">
+      <form onsubmit="salvarNovaManut(event)">
+        <div class="row2">
+          <div class="form-group"><label class="form-label">Código</label><input class="form-ctrl" id="nm-cod" required /></div>
+          <div class="form-group"><label class="form-label">Nome do Cliente</label><input class="form-ctrl" id="nm-nome" required /></div>
+        </div>
+        <div class="row2">
+          <div class="form-group"><label class="form-label">Filial</label><input class="form-ctrl" id="nm-fil" required /></div>
+          <div class="form-group"><label class="form-label">Técnico</label><input class="form-ctrl" id="nm-tec" /></div>
+        </div>
+        <div class="row3">
+          <div class="form-group"><label class="form-label">Data Execução</label><input class="form-ctrl" id="nm-dt" type="date" value="${hoje()}" required /></div>
+          <div class="form-group"><label class="form-label">Tipo de Manutenção</label>
+            <select class="form-ctrl" id="nm-tipo">
+              <option value="corretiva">🟠 Corretiva</option>
+              <option value="preventiva">🟢 Preventiva</option>
+              <option value="emergencial">🔴 Emergencial</option>
+            </select>
+          </div>
+          <div class="form-group"><label class="form-label">Descrição do Serviço</label><input class="form-ctrl" id="nm-desc" placeholder="Ex: Troca de sensor" /></div>
+        </div>
+        <div class="modal-ft" style="padding:0;margin-top:8px">
+          <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar</button>
+        </div>
+      </form>
+    </div>`);
+}
+
+async function salvarNovaManut(e) {
+  e.preventDefault();
+  const row = {
+    codigo_cliente: val('nm-cod').trim(),
+    nome_cliente: val('nm-nome').trim(),
+    filial: val('nm-fil').trim(),
+    tecnico_responsavel: val('nm-tec').trim()||null,
+    data_execucao: val('nm-dt'),
+    tipo_manutencao: val('nm-tipo'),
+    descricao_servico: val('nm-desc').trim()||null,
+    status_pesquisa: 'pendente',
+  };
+  load(true);
+  try { await insertMaintenanceOrders([row]); closeModal(); toast('Manutenção cadastrada! ✅'); await pageManutencoes(qs('#page')); }
+  catch(er) { toast('Erro: '+er.message,'err'); }
+  finally { load(false); }
+}
+
+function openImportManut() {
+  App.importManutRows = [];
+  openModal(`
+    <div class="modal-hd"><div class="modal-title">⬆ Importar Manutenções</div><button class="btn-x" onclick="closeModal()">✕</button></div>
+    <div class="modal-bd">
+      <div class="import-box"><strong>Colunas esperadas:</strong><br>
+      <span class="import-cols">Código do Cliente · Nome do Cliente · Filial · Técnico Responsável · Data da Execução · Tipo de Manutenção · Descrição do Serviço</span></div>
+      <div class="form-group"><label class="form-label">Arquivo CSV ou XLSX</label>
+        <input class="form-ctrl" type="file" accept=".csv,.xlsx,.xls" onchange="previewImportManut(this)" /></div>
+      <div id="imp-prev-m"></div>
+    </div>
+    <div class="modal-ft">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" id="btn-imp-m" style="display:none" onclick="confirmarImportManut()">✅ Importar</button>
+    </div>`);
+}
+
+async function previewImportManut(input) {
+  const file = input.files[0]; if (!file) return;
+  const prev = qs('#imp-prev-m');
+  prev.innerHTML = '<div class="muted small mt12">Lendo…</div>';
+  try {
+    const rows = await lerArquivo(file);
+    App.importManutRows = rows.map(r => ({
+      codigo_cliente: str(r,'Código do Cliente','codigo_cliente','Código','codigo'),
+      nome_cliente: str(r,'Nome do Cliente','nome_cliente','Nome','nome'),
+      filial: str(r,'Filial','filial'),
+      tecnico_responsavel: str(r,'Técnico Responsável','tecnico_responsavel','Técnico','tecnico')||null,
+      data_execucao: parseDate(r['Data da Execução']||r['data_execucao']||r['Data']||''),
+      tipo_manutencao: (str(r,'Tipo de Manutenção','tipo_manutencao','Tipo','tipo')||'corretiva').toLowerCase(),
+      descricao_servico: str(r,'Descrição do Serviço','descricao_servico','Descrição','descricao')||null,
+      status_pesquisa: 'pendente',
+    })).filter(r => r.codigo_cliente && r.nome_cliente);
+    if (!App.importManutRows.length) { prev.innerHTML = '<div class="red small mt12">Nenhum registro válido.</div>'; return; }
+    prev.innerHTML = `<div class="green small mt12 mb16">✅ ${App.importManutRows.length} registros encontrados</div>
+      <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;max-height:180px;overflow-y:auto">
+        <table style="font-size:12px"><thead><tr style="background:var(--bg3)">
+          <th style="padding:8px 10px">Código</th><th style="padding:8px 10px">Nome</th>
+          <th style="padding:8px 10px">Filial</th><th style="padding:8px 10px">Tipo</th>
+        </tr></thead><tbody>${App.importManutRows.slice(0,5).map(r=>`
+          <tr style="border-top:1px solid var(--border)">
+            <td style="padding:8px 10px;color:var(--text2)">${r.codigo_cliente}</td>
+            <td style="padding:8px 10px;color:var(--text2)">${r.nome_cliente}</td>
+            <td style="padding:8px 10px;color:var(--text3)">${r.filial||'—'}</td>
+            <td style="padding:8px 10px;color:var(--text3)">${r.tipo_manutencao||'—'}</td>
+          </tr>`).join('')}
+          ${App.importManutRows.length>5?`<tr><td colspan="4" style="padding:8px 10px;text-align:center;color:var(--text3)">… e mais ${App.importManutRows.length-5}</td></tr>`:''}
+        </tbody></table></div>`;
+    show('btn-imp-m', true);
+  } catch(e) { prev.innerHTML = `<div class="red small mt12">Erro: ${e.message}</div>`; }
+}
+
+async function confirmarImportManut() {
+  if (!App.importManutRows?.length) return;
+  load(true);
+  try {
+    for (let i=0; i<App.importManutRows.length; i+=100) await insertMaintenanceOrders(App.importManutRows.slice(i,i+100));
+    closeModal(); toast(`${App.importManutRows.length} manutenções importadas! ✅`); App.importManutRows = [];
+    await pageManutencoes(qs('#page'));
+  } catch(e) { toast('Erro: '+e.message,'err'); }
+  finally { load(false); }
+}
+
+async function verDetalhesManut(orderId) {
+  load(true);
+  try {
+    const s = await getManutSatByOrder(orderId);
+    if (!s) { toast('Pesquisa não encontrada.','err'); return; }
+    const mediaGeral = [s.nota_atendimento, s.nota_prazo, s.nota_limpeza].filter(n=>n!=null);
+    const media = mediaGeral.length > 0 ? (mediaGeral.reduce((a,b)=>a+b,0)/mediaGeral.length).toFixed(1) : '—';
+    openModal(`
+      <div class="modal-hd"><div class="modal-title">👁 Detalhes — Manutenção</div><button class="btn-x" onclick="closeModal()">✕</button></div>
+      <div class="modal-bd">
+        <div class="sac-info-grid">
+          <div><div class="form-label">Cliente</div><div class="bold">${s.nome_cliente||s.codigo_cliente}</div></div>
+          <div><div class="form-label">Filial</div><div>${s.filial||'—'}</div></div>
+          <div><div class="form-label">Técnico</div><div>${s.tecnico_responsavel||'—'}</div></div>
+          <div><div class="form-label">Tipo</div><div>${s.tipo_manutencao||'—'}</div></div>
+          <div><div class="form-label">Nota Atend.</div>${chipNota(s.nota_atendimento)}</div>
+          <div><div class="form-label">Nota Prazo</div>${chipNota(s.nota_prazo)}</div>
+          <div><div class="form-label">Nota Limpeza</div>${chipNota(s.nota_limpeza)}</div>
+          <div><div class="form-label">Média</div><span class="bold" style="font-size:18px">${media}</span></div>
+          <div><div class="form-label">Status</div>${badgeStatus(s.status)}</div>
+          <div><div class="form-label">Data</div><div>${fmtDate(s.data_ligacao)}</div></div>
+        </div>
+        ${s.problema_reincidente?`<div style="background:var(--red-bg);border:1px solid rgba(239,68,68,.3);color:var(--red2);padding:10px 14px;border-radius:8px;margin:12px 0;font-size:13px">🔄 Problema REINCIDENTE reportado pelo cliente.</div>`:''}
+        ${s.enviado_para_sac?`<div style="background:var(--red-bg);border:1px solid rgba(239,68,68,.3);color:var(--red2);padding:10px 14px;border-radius:8px;margin:12px 0;font-size:13px">🆘 Enviado automaticamente para o SAC por nota baixa.</div>`:''}
+        ${s.descricao_problema?`<div class="form-group"><div class="form-label">Problema</div><div class="muted">${s.descricao_problema}</div></div>`:''}
+        ${s.observacoes?`<div class="form-group"><div class="form-label">Observações</div><div class="muted">${s.observacoes}</div></div>`:''}
+        <div class="row2">
+          <div><div class="form-label">Operador</div><div>${s.operador_responsavel||'—'}</div></div>
+          <div><div class="form-label">Retorno?</div><div>${s.deseja_retorno?'📞 Sim':'Não'}</div></div>
+        </div>
+      </div>
+      <div class="modal-ft"><button class="btn btn-ghost" onclick="closeModal()">Fechar</button></div>`);
+  } finally { load(false); }
+}
+
+async function irParaPesqManut(id) {
+  App.manutOrders = await getMaintenanceOrders({ status:'pendente' });
+  await goto('pesq-manut');
+  setTimeout(()=>selManut(id),200);
+}
+
+// ─── Pesquisa de Manutenção: Formulário ──────────────────────────────────────
+async function pagePesqManut(el) {
+  const list = await getMaintenanceOrders({ status:'pendente' });
+  App.manutOrders = list;
+  App.manutSel = null;
+  App.togglesM = {};
+  el.innerHTML = `
+    <div class="g2" style="align-items:start;gap:20px">
+      <div>
+        <div class="sec-title">Pendentes (${list.length})</div>
+        <div id="lista-manut-pend" style="display:flex;flex-direction:column;gap:8px">
+          ${list.length===0
+            ?`<div class="card">${emptyState('✅','Tudo em dia!','Nenhuma pesquisa de manutenção pendente')}</div>`
+            :list.map(d=>{
+              const tipoLabel = {'preventiva':'🟢 Prev.','corretiva':'🟠 Corr.','emergencial':'🔴 Emerg.'}[d.tipo_manutencao] || d.tipo_manutencao || '';
+              return `
+              <div class="card" id="mcard-${d.id}" style="cursor:pointer;transition:border-color .15s"
+                onclick="selManut('${d.id}')"
+                onmouseenter="this.style.borderColor='var(--blue)'"
+                onmouseleave="if(!App.manutSel||App.manutSel.id!='${d.id}')this.style.borderColor='var(--border)'">
+                <div class="flex-c gap12" style="justify-content:space-between">
+                  <div>
+                    <div class="bold">${d.nome_cliente||d.codigo_cliente}</div>
+                    <div class="muted small mt-2">${d.filial||'—'} · ${d.tecnico_responsavel||'—'}</div>
+                    <div class="muted small">${tipoLabel} · ${fmtDate(d.data_execucao)}${d.descricao_servico?` · ${d.descricao_servico}`:''}</div>
+                  </div>
+                  ${badgeStatus(d.status_pesquisa)}
+                </div>
+              </div>`;
+            }).join('')}
+        </div>
+      </div>
+      <div>
+        <div class="sec-title">Formulário de Manutenção</div>
+        <div id="form-manut" class="card">${emptyState('👈','Selecione uma manutenção','Clique em uma ordem à esquerda')}</div>
+      </div>
+    </div>`;
+}
+
+function selManut(id) {
+  document.querySelectorAll('[id^="mcard-"]').forEach(c => { c.style.borderColor='var(--border)'; c.style.background='var(--card)'; });
+  const card = qs(`#mcard-${id}`);
+  if (card) { card.style.borderColor='var(--blue)'; card.style.background='rgba(59,130,246,.04)'; }
+  App.manutSel = (App.manutOrders||[]).find(d => String(d.id)===String(id));
+  App.togglesM = {};
+  renderFormManut();
+}
+
+function renderFormManut() {
+  const d = App.manutSel;
+  const tipoLabel = {'preventiva':'🟢 Preventiva','corretiva':'🟠 Corretiva','emergencial':'🔴 Emergencial'}[d.tipo_manutencao] || d.tipo_manutencao || '—';
+  qs('#form-manut').innerHTML = `
+    <div style="padding-bottom:14px;margin-bottom:14px;border-bottom:1px solid var(--border)">
+      <div class="bold">${d.nome_cliente||d.codigo_cliente}</div>
+      <div class="muted small mt-2">${d.filial||'—'} · ${d.tecnico_responsavel||'—'} · ${tipoLabel} · ${fmtDate(d.data_execucao)}</div>
+      ${d.descricao_servico?`<div class="muted small">${d.descricao_servico}</div>`:''}
+    </div>
+    <form onsubmit="salvarPesqManut(event)">
+      <div class="form-group">
+        <label class="form-label">Contato Realizado?</label>
+        <div class="toggle-row">
+          <button type="button" class="tog" id="mc-sim" onclick="togM('mc','sim')">✅ Sim</button>
+          <button type="button" class="tog" id="mc-nao" onclick="togM('mc','nao')">❌ Não Atendeu</button>
+        </div>
+      </div>
+      <div id="mbloco-sim" style="display:none">
+        <div class="row2">
+          <div class="form-group"><label class="form-label">Nome de Quem Atendeu</label><input class="form-ctrl" id="m-nome-ct" placeholder="Ex: Maria Silva" /></div>
+          <div class="form-group"><label class="form-label">Telefone do Cliente</label><input class="form-ctrl" id="m-tel-ct" placeholder="(00) 00000-0000" /></div>
+        </div>
+        <div class="form-group"><label class="form-label">Data da Ligação</label><input class="form-ctrl" id="m-dt-lig" type="date" value="${hoje()}" /></div>
+
+        <div class="form-group">
+          <label class="form-label">O problema foi resolvido na manutenção?</label>
+          <div class="toggle-row">
+            <button type="button" class="tog" id="mr-sim" onclick="togM('mr','sim')">✅ Sim, resolvido</button>
+            <button type="button" class="tog" id="mr-nao" onclick="togM('mr','nao')">❌ Não resolveu</button>
+          </div>
+        </div>
+        <div class="form-group" id="mgrp-nresolvido" style="display:none">
+          <label class="form-label">Descrição do Problema <span style="color:var(--red)">*</span></label>
+          <textarea class="form-ctrl" id="m-desc-prob" placeholder="O que não foi resolvido?"></textarea>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">É um problema reincidente?</label>
+          <div class="toggle-row">
+            <button type="button" class="tog" id="mi-sim" onclick="togM('mi','sim')">🔄 Sim, já aconteceu antes</button>
+            <button type="button" class="tog" id="mi-nao" onclick="togM('mi','nao')">✅ Não, primeira vez</button>
+          </div>
+        </div>
+
+        <div class="sec-title mt16">Notas de Avaliação (0 – 10)</div>
+        <div class="form-group">
+          <label class="form-label">Nota do Atendimento do Técnico</label>
+          <div class="nota-wrap">
+            <input type="range" id="m-nota-atend" min="0" max="10" value="8" oninput="atualizaNotaM('atend',this.value)" style="flex:1" />
+            <div style="text-align:center">
+              <div class="nota-num" id="m-nota-atend-num" style="color:var(--amber2)">8</div>
+              <div class="nota-cls" id="m-nota-atend-cls" style="color:var(--amber2)">😐 Neutro</div>
+            </div>
+          </div>
+          <div id="m-aviso-sac" style="display:none;background:var(--red-bg);border:1px solid rgba(239,68,68,.3);color:var(--red2);padding:8px 12px;border-radius:8px;font-size:12px;margin-top:8px">
+            ⚠️ Nota abaixo de 8 — este cliente será enviado automaticamente para o SAC.
+          </div>
+        </div>
+        <div class="row2">
+          <div class="form-group">
+            <label class="form-label">Nota do Prazo de Atendimento</label>
+            <div class="nota-wrap">
+              <input type="range" id="m-nota-prazo" min="0" max="10" value="8" oninput="atualizaNotaM('prazo',this.value)" style="flex:1" />
+              <div style="text-align:center">
+                <div class="nota-num" id="m-nota-prazo-num" style="color:var(--amber2)">8</div>
+              </div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Nota de Limpeza / Organização</label>
+            <div class="nota-wrap">
+              <input type="range" id="m-nota-limpeza" min="0" max="10" value="8" oninput="atualizaNotaM('limpeza',this.value)" style="flex:1" />
+              <div style="text-align:center">
+                <div class="nota-num" id="m-nota-limpeza-num" style="color:var(--amber2)">8</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Deseja Retorno?</label>
+          <div class="toggle-row">
+            <button type="button" class="tog" id="mrt-sim" onclick="togM('mrt','sim')">📞 Sim</button>
+            <button type="button" class="tog" id="mrt-nao" onclick="togM('mrt','nao')">✅ Não</button>
+          </div>
+        </div>
+        <div class="form-group"><label class="form-label">Observações</label><textarea class="form-ctrl" id="m-obs" placeholder="Anotações adicionais…"></textarea></div>
+        <div class="row2">
+          <div class="form-group"><label class="form-label">Operador</label><input class="form-ctrl" id="m-operador" placeholder="Seu nome" value="${App.currentProfile?.nome||''}" /></div>
+          <div class="form-group"><label class="form-label">Status</label>
+            <select class="form-ctrl" id="m-st-pesq">
+              <option value="respondido">Respondido</option>
+              <option value="concluido">Concluído</option>
+              <option value="remarcar">Remarcar</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div id="mbloco-nao" style="display:none">
+        <div class="row2">
+          <div class="form-group"><label class="form-label">Status</label>
+            <select class="form-ctrl" id="m-st-nao">
+              <option value="nao_atendeu">Não Atendeu</option>
+              <option value="remarcar">Remarcar</option>
+            </select>
+          </div>
+          <div class="form-group"><label class="form-label">Operador</label><input class="form-ctrl" id="m-op-nao" placeholder="Seu nome" value="${App.currentProfile?.nome||''}" /></div>
+        </div>
+        <div class="form-group"><label class="form-label">Observações</label><textarea class="form-ctrl" id="m-obs-nao" placeholder="Motivo do não contato…"></textarea></div>
+      </div>
+      <button type="submit" class="btn btn-success" style="width:100%;margin-top:6px;justify-content:center">💾 Salvar Pesquisa de Manutenção</button>
+    </form>`;
+}
+
+function togM(g, v) {
+  App.togglesM[g] = v;
+  const sim=qs(`#${g}-sim`), nao=qs(`#${g}-nao`);
+  if (!sim||!nao) return;
+  sim.className='tog'+(v==='sim'?' yes':'');
+  nao.className='tog'+(v==='nao'?' no':'');
+  if (g==='mc') { show('mbloco-sim',v==='sim'); show('mbloco-nao',v==='nao'); }
+  if (g==='mr') show('mgrp-nresolvido',v==='nao');
+}
+
+function atualizaNotaM(tipo, v) {
+  const n = +v;
+  const numEl = qs(`#m-nota-${tipo}-num`);
+  if (!numEl) return;
+  const color = n>=9?'var(--green2)':n>=7?'var(--amber2)':'var(--red2)';
+  numEl.textContent = n; numEl.style.color = color;
+  const clsEl = qs(`#m-nota-${tipo}-cls`);
+  if (clsEl) {
+    const label = n>=9?'😊 Satisfeito':n>=7?'😐 Neutro':'😞 Insatisfeito';
+    clsEl.textContent = label; clsEl.style.color = color;
+  }
+  if (tipo === 'atend') {
+    const aviso = qs('#m-aviso-sac');
+    if (aviso) aviso.style.display = n<8?'block':'none';
+  }
+}
+
+async function salvarPesqManut(e) {
+  e.preventDefault();
+  if (!App.manutSel) return;
+  const contatoOk    = App.togglesM['mc']==='sim';
+  const resolvido    = App.togglesM['mr']==='sim';
+  const reincidente  = App.togglesM['mi']==='sim';
+  const retorno      = App.togglesM['mrt']==='sim';
+
+  if (!App.togglesM['mc']) { toast('Informe se o contato foi realizado.','err'); return; }
+  if (contatoOk && !App.togglesM['mr']) { toast('Informe se o problema foi resolvido.','err'); return; }
+  if (contatoOk && !resolvido && !val('m-desc-prob').trim()) { toast('Descreva o problema não resolvido.','err'); return; }
+  if (contatoOk && !App.togglesM['mi']) { toast('Informe se é reincidente.','err'); return; }
+  if (contatoOk && !App.togglesM['mrt']) { toast('Informe se deseja retorno.','err'); return; }
+
+  let status, operador, obs;
+  if (contatoOk) { status=val('m-st-pesq')||'respondido'; operador=val('m-operador'); obs=val('m-obs'); }
+  else           { status=val('m-st-nao')||'nao_atendeu'; operador=val('m-op-nao');   obs=val('m-obs-nao'); }
+
+  const notaAtend   = contatoOk ? +val('m-nota-atend')   : null;
+  const notaPrazo   = contatoOk ? +val('m-nota-prazo')   : null;
+  const notaLimpeza = contatoOk ? +val('m-nota-limpeza') : null;
+
+  const row = {
+    order_id: App.manutSel.id,
+    codigo_cliente: App.manutSel.codigo_cliente,
+    nome_cliente: App.manutSel.nome_cliente,
+    telefone: contatoOk ? val('m-tel-ct')||null : null,
+    filial: App.manutSel.filial,
+    tecnico_responsavel: App.manutSel.tecnico_responsavel,
+    tipo_manutencao: App.manutSel.tipo_manutencao,
+    contato_realizado: contatoOk,
+    nome_contato: contatoOk ? val('m-nome-ct')||null : null,
+    problema_resolvido: contatoOk ? resolvido : null,
+    problema_reincidente: contatoOk ? reincidente : false,
+    descricao_problema: contatoOk && !resolvido ? val('m-desc-prob') : null,
+    nota_atendimento: notaAtend,
+    nota_prazo: notaPrazo,
+    nota_limpeza: notaLimpeza,
+    deseja_retorno: contatoOk ? retorno : false,
+    observacoes: obs||null,
+    data_ligacao: contatoOk ? (val('m-dt-lig')||hoje()) : hoje(),
+    operador_responsavel: operador||null,
+    status,
+  };
+
+  load(true);
+  try {
+    await insertMaintenanceSatisfaction(row);
+    await updateMaintenanceStatus(App.manutSel.id, status);
+    const msg = notaAtend!=null && notaAtend<8
+      ? '✅ Pesquisa salva! ⚠️ Nota baixa — enviado ao SAC automaticamente.'
+      : '✅ Pesquisa de manutenção salva com sucesso!';
+    toast(msg);
+    App.manutSel = null;
+    await pagePesqManut(qs('#page'));
     await atualizarBadges();
   } catch(er) { toast('Erro: '+er.message,'err'); }
   finally { load(false); }
@@ -1643,6 +2208,13 @@ function abrirLimparDados() {
             <div class="muted small">Tabela sac_atendimentos + sac_historico — todos os casos SAC</div>
           </div>
         </label>
+        <label style="display:flex;align-items:center;gap:12px;padding:14px 16px;background:rgba(255,255,255,.03);border:1px solid var(--border2);border-radius:10px;cursor:pointer">
+          <input type="checkbox" id="del-manut" style="width:18px;height:18px;accent-color:var(--red);cursor:pointer" />
+          <div>
+            <div style="font-weight:700;font-size:13px">🔧 Manutenções</div>
+            <div class="muted small">Tabelas maintenance_orders + maintenance_satisfaction</div>
+          </div>
+        </label>
       </div>
 
       <div class="form-group">
@@ -1662,7 +2234,7 @@ function abrirLimparDados() {
 
 function checarConfirmacao() {
   const ok = val('del-confirm').trim() === 'CONFIRMAR';
-  const algum = qs('#del-sat')?.checked || qs('#del-ent')?.checked || qs('#del-sac')?.checked;
+  const algum = qs('#del-sat')?.checked || qs('#del-ent')?.checked || qs('#del-sac')?.checked || qs('#del-manut')?.checked;
   const btn = qs('#btn-del-exec');
   if (!btn) return;
   btn.disabled = !(ok && algum);
@@ -1674,8 +2246,9 @@ async function executarLimpeza() {
   const delSat = qs('#del-sat')?.checked;
   const delEnt = qs('#del-ent')?.checked;
   const delSac = qs('#del-sac')?.checked;
+  const delManut = qs('#del-manut')?.checked;
 
-  if (!delSat && !delEnt && !delSac) { toast('Selecione ao menos uma opção.','err'); return; }
+  if (!delSat && !delEnt && !delSac && !delManut) { toast('Selecione ao menos uma opção.','err'); return; }
   if (val('del-confirm').trim() !== 'CONFIRMAR') { toast('Digite CONFIRMAR para prosseguir.','err'); return; }
 
   load(true);
@@ -1696,11 +2269,17 @@ async function executarLimpeza() {
       if (e1) erros.push('Histórico SAC: ' + e1.message);
       if (e2) erros.push('Atendimentos SAC: ' + e2.message);
     }
+    if (delManut) {
+      const { error: m1 } = await sb.from('maintenance_satisfaction').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      const { error: m2 } = await sb.from('maintenance_orders').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      if (m1) erros.push('Pesquisas Manutenção: ' + m1.message);
+      if (m2) erros.push('Ordens Manutenção: ' + m2.message);
+    }
 
     if (erros.length > 0) {
       toast('Erros: ' + erros.join(' | '), 'err');
     } else {
-      const itens = [delSat&&'pesquisas', delEnt&&'entregas', delSac&&'SAC'].filter(Boolean).join(', ');
+      const itens = [delSat&&'pesquisas', delEnt&&'entregas', delSac&&'SAC', delManut&&'manutenções'].filter(Boolean).join(', ');
       toast(`✅ Dados excluídos: ${itens}`);
       closeModal();
       await goto('dashboard');
