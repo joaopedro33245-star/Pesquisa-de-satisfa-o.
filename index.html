@@ -11,6 +11,7 @@
 :root {
   --bg:#080c14;--bg2:#0c1220;--bg3:#111827;--card:#0e1625;--border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.13);--text:#eef2ff;--text2:rgba(238,242,255,0.55);--text3:rgba(238,242,255,0.28);
   --blue:#3b82f6;--blue2:#60a5fa;--blue-bg:rgba(59,130,246,0.12);--green:#10b981;--green2:#34d399;--green-bg:rgba(16,185,129,0.12);--red:#ef4444;--red2:#f87171;--red-bg:rgba(239,68,68,0.12);--amber:#f59e0b;--amber2:#fcd34d;--amber-bg:rgba(245,158,11,0.12);--purple:#8b5cf6;--purple2:#a78bfa;--purple-bg:rgba(139,92,246,0.12);--cyan:#06b6d4;--cyan2:#67e8f9;
+  --glass:rgba(14,22,37,0.65);--glass-border:rgba(255,255,255,0.09);
   --r:14px;--rsm:8px;--font:'Plus Jakarta Sans',sans-serif;--mono:'Fira Code',monospace;--shadow:0 8px 32px rgba(0,0,0,0.5);
 }
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
@@ -231,6 +232,94 @@ td{padding:12px 14px;font-size:13px;color:var(--text2);}
 .nav-item.admin-nav { color: var(--amber2) !important; }
 .nav-item.admin-nav:hover { background: var(--amber-bg) !important; color: var(--amber2) !important; }
 .admin-only { display: none; }
+
+/* ─── Enhanced Visual Design ─────────────────────────────────────────────── */
+.card{background:var(--glass);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid var(--glass-border);transition:border-color .25s,transform .25s,box-shadow .25s;}
+.card:hover{border-color:rgba(255,255,255,.13);}
+.kpi{background:var(--glass);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid var(--glass-border);transition:border-color .25s,transform .3s,box-shadow .3s;}
+.kpi:hover{border-color:var(--border2);transform:translateY(-4px);box-shadow:0 12px 32px rgba(0,0,0,.35);}
+.kpi-value{transition:color .3s;}
+
+/* Animated counters */
+@keyframes countUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.kpi-value.animated{animation:countUp .4s ease-out;}
+
+/* Staggered card entrance */
+@keyframes cardIn{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:none}}
+.dash-section .kpi,.dash-section .card,.dash-section .chart-card{animation:cardIn .45s ease-out both;}
+.dash-section > *:nth-child(1){animation-delay:.04s;}
+.dash-section > *:nth-child(2){animation-delay:.08s;}
+.dash-section > *:nth-child(3){animation-delay:.12s;}
+.dash-section > *:nth-child(4){animation-delay:.16s;}
+.dash-section > *:nth-child(5){animation-delay:.20s;}
+.dash-section > *:nth-child(6){animation-delay:.24s;}
+
+/* Chart cards */
+.chart-card{background:var(--glass);backdrop-filter:blur(12px);border:1px solid var(--glass-border);border-radius:var(--r);padding:20px;position:relative;overflow:hidden;transition:border-color .25s,box-shadow .3s;}
+.chart-card:hover{border-color:var(--border2);box-shadow:0 8px 28px rgba(0,0,0,.3);}
+.chart-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--chart-accent,var(--blue)),var(--chart-accent2,var(--cyan)));border-radius:var(--r) var(--r) 0 0;}
+.chart-title{font-size:10px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;color:var(--text3);margin-bottom:16px;display:flex;align-items:center;gap:8px;}
+.chart-title .ct-icon{font-size:14px;}
+
+/* SVG Gauge */
+.gauge-wrap{display:flex;flex-direction:column;align-items:center;padding:10px 0;}
+.gauge-label{font-size:11px;color:var(--text3);margin-top:8px;font-weight:600;}
+.gauge-score{font-size:38px;font-weight:800;font-family:var(--mono);line-height:1;}
+
+/* Bar chart */
+.bar-row{display:flex;align-items:center;gap:8px;margin-bottom:5px;}
+.bar-label{width:22px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--text3);flex-shrink:0;}
+.bar-track{flex:1;height:22px;background:rgba(255,255,255,.04);border-radius:6px;overflow:hidden;position:relative;}
+.bar-fill{height:100%;border-radius:6px;transition:width .8s cubic-bezier(.22,1,.36,1);display:flex;align-items:center;padding-left:8px;min-width:0;}
+.bar-fill span{font-size:10px;font-weight:700;color:rgba(0,0,0,.75);white-space:nowrap;}
+.bar-count{width:28px;font-family:var(--mono);font-size:11px;color:var(--text3);text-align:left;flex-shrink:0;}
+
+/* Donut chart */
+.donut-wrap{display:flex;align-items:center;gap:20px;justify-content:center;flex-wrap:wrap;}
+.donut-legend{display:flex;flex-direction:column;gap:8px;}
+.donut-item{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);}
+.donut-dot{width:10px;height:10px;border-radius:3px;flex-shrink:0;}
+.donut-item strong{color:var(--text);font-family:var(--mono);margin-left:auto;padding-left:12px;}
+
+/* Line chart */
+.line-chart-wrap{position:relative;}
+
+/* Dashboard layout */
+.dash-grid{display:grid;gap:16px;}
+.dash-g2{grid-template-columns:1fr 1fr;}
+.dash-g3{grid-template-columns:1fr 1fr 1fr;}
+.dash-g4{grid-template-columns:1fr 1fr 1fr 1fr;}
+@media(max-width:1100px){.dash-g3{grid-template-columns:1fr 1fr;}.dash-g4{grid-template-columns:1fr 1fr;}}
+@media(max-width:768px){.dash-g2,.dash-g3,.dash-g4{grid-template-columns:1fr;}}
+
+/* Section divider */
+.sec-divider{display:flex;align-items:center;gap:12px;margin:24px 0 16px;padding:0;}
+.sec-divider .sec-icon{width:32px;height:32px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;}
+.sec-divider .sec-info h3{font-size:14px;font-weight:800;color:var(--text);}
+.sec-divider .sec-info p{font-size:11px;color:var(--text3);margin-top:1px;}
+.sec-divider::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,var(--border2),transparent);}
+
+/* Pulse on badge */
+.nav-badge{animation:badgePulse 2s ease-in-out infinite;}
+@keyframes badgePulse{0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,.4)}50%{box-shadow:0 0 0 6px rgba(239,68,68,0)}}
+
+/* Smooth page transitions */
+.page{animation:pageIn .3s ease-out;}
+@keyframes pageIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+
+/* Button enhancements */
+.btn{position:relative;overflow:hidden;}
+.btn::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,rgba(255,255,255,.08) 0%,transparent 60%);pointer-events:none;opacity:0;transition:opacity .2s;}
+.btn:hover::after{opacity:1;}
+
+/* Table row smooth hover */
+tbody tr{transition:background .15s,transform .15s;}
+
+/* Toast enhancement */
+.toast{backdrop-filter:blur(8px);}
+
+/* Bar animation */
+@keyframes barGrow{from{width:0 !important}}
   </style>
 </head>
 <body>
@@ -1015,16 +1104,159 @@ async function atualizarBadges() {
   } catch {}
 }
 
+// ─── Chart Utilities ──────────────────────────────────────────────────────────
+function renderGauge(score, max=10, size=160, label='') {
+  if (score == null || score === '—') score = 0;
+  const s = +score;
+  const pct = Math.min(s / max, 1);
+  const r = (size - 20) / 2;
+  const cx = size / 2, cy = size / 2 + 10;
+  const startAngle = Math.PI;
+  const endAngle = 0;
+  const sweepAngle = startAngle - (startAngle - endAngle) * pct;
+  const x1 = cx + r * Math.cos(startAngle), y1 = cy - r * Math.sin(startAngle);
+  const x2 = cx + r * Math.cos(sweepAngle), y2 = cy - r * Math.sin(sweepAngle);
+  const largeArc = pct > 0.5 ? 1 : 0;
+  const color = s >= 9 ? 'var(--green2)' : s >= 7 ? 'var(--amber2)' : 'var(--red2)';
+  const gradId = 'gg' + Math.random().toString(36).slice(2,8);
+  const emoji = s >= 9 ? '😊' : s >= 7 ? '😐' : '😞';
+  return `<div class="gauge-wrap">
+    <svg width="${size}" height="${size/2+30}" viewBox="0 0 ${size} ${size/2+30}">
+      <defs>
+        <linearGradient id="${gradId}" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stop-color="var(--red2)"/>
+          <stop offset="50%" stop-color="var(--amber2)"/>
+          <stop offset="100%" stop-color="var(--green2)"/>
+        </linearGradient>
+      </defs>
+      <path d="M ${cx-r} ${cy} A ${r} ${r} 0 0 1 ${cx+r} ${cy}" fill="none" stroke="rgba(255,255,255,.06)" stroke-width="14" stroke-linecap="round"/>
+      ${pct > 0 ? `<path d="M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2}" fill="none" stroke="url(#${gradId})" stroke-width="14" stroke-linecap="round" style="filter:drop-shadow(0 0 6px ${color})">
+        <animate attributeName="stroke-dasharray" from="0 999" to="${pct * Math.PI * r} 999" dur=".9s" fill="freeze" calcMode="spline" keySplines="0.22 1 0.36 1"/>
+      </path>` : ''}
+      <text x="${cx}" y="${cy - 12}" text-anchor="middle" fill="${color}" font-family="var(--mono)" font-size="32" font-weight="800">${s > 0 ? s : '—'}</text>
+      <text x="${cx}" y="${cy + 8}" text-anchor="middle" fill="var(--text3)" font-family="var(--font)" font-size="12">${emoji} ${s>=9?'Excelente':s>=7?'Bom':s>0?'Atenção':'Sem dados'}</text>
+    </svg>
+    ${label?`<div class="gauge-label">${label}</div>`:''}
+  </div>`;
+}
+
+function renderBarChartSVG(data, w=380, h=220) {
+  if (!data.length) return '<div class="muted small center" style="padding:20px">Sem dados</div>';
+  const max = Math.max(...data.map(d=>d.value), 1);
+  return data.map((d,i) => {
+    const pct = (d.value / max * 100).toFixed(0);
+    const color = d.color || (d.key>=9?'var(--green2)':d.key>=7?'var(--amber2)':'var(--red2)');
+    return `<div class="bar-row">
+      <div class="bar-label">${d.label??d.key}</div>
+      <div class="bar-track">
+        <div class="bar-fill" style="width:${pct}%;background:${color};animation:barGrow .6s ${i*0.05}s ease-out both">
+          ${d.value>0?`<span>${d.value}</span>`:''}
+        </div>
+      </div>
+      <div class="bar-count">${d.value}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderDonut(segments, size=140) {
+  const total = segments.reduce((a,s)=>a+s.value, 0);
+  if (total === 0) return '<div class="muted small center" style="padding:20px">Sem dados</div>';
+  const r = (size-10)/2, cx = size/2, cy = size/2;
+  const circumference = 2 * Math.PI * r;
+  let offset = 0;
+  const paths = segments.filter(s=>s.value>0).map((s,i) => {
+    const pct = s.value / total;
+    const dash = circumference * pct;
+    const gap = circumference - dash;
+    const thisOffset = offset;
+    offset += dash;
+    return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${s.color}" stroke-width="18"
+      stroke-dasharray="${dash} ${gap}" stroke-dashoffset="${-thisOffset}"
+      transform="rotate(-90 ${cx} ${cy})" stroke-linecap="round" style="filter:drop-shadow(0 0 3px ${s.color}33)">
+      <animate attributeName="stroke-dasharray" from="0 ${circumference}" to="${dash} ${gap}" dur=".7s" fill="freeze" calcMode="spline" keySplines="0.22 1 0.36 1" begin="${i*0.1}s"/>
+    </circle>`;
+  }).join('');
+  const legend = segments.filter(s=>s.value>0).map(s =>
+    `<div class="donut-item"><div class="donut-dot" style="background:${s.color}"></div>${s.label}<strong>${s.value}</strong></div>`
+  ).join('');
+  return `<div class="donut-wrap">
+    <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+      <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="rgba(255,255,255,.04)" stroke-width="18"/>
+      ${paths}
+      <text x="${cx}" y="${cy-4}" text-anchor="middle" fill="var(--text)" font-family="var(--mono)" font-size="22" font-weight="800">${total}</text>
+      <text x="${cx}" y="${cy+14}" text-anchor="middle" fill="var(--text3)" font-family="var(--font)" font-size="10">total</text>
+    </svg>
+    <div class="donut-legend">${legend}</div>
+  </div>`;
+}
+
+function renderLineChart(points, w=440, h=140) {
+  if (points.length < 2) return '<div class="muted small center" style="padding:20px">Dados insuficientes para gráfico</div>';
+  const maxV = Math.max(...points.map(p=>p.value), 1);
+  const minV = Math.min(...points.map(p=>p.value), 0);
+  const range = maxV - minV || 1;
+  const pad = {t:16, b:28, l:32, r:12};
+  const pw = w - pad.l - pad.r, ph = h - pad.t - pad.b;
+  const pts = points.map((p,i) => ({
+    x: pad.l + (i / (points.length-1)) * pw,
+    y: pad.t + (1 - (p.value - minV) / range) * ph,
+  }));
+  const pathD = pts.map((p,i) => `${i===0?'M':'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+  const areaD = pathD + ` L ${pts[pts.length-1].x.toFixed(1)} ${h-pad.b} L ${pts[0].x.toFixed(1)} ${h-pad.b} Z`;
+  const gridLines = [0, 0.25, 0.5, 0.75, 1].map(pct => {
+    const y = pad.t + (1-pct) * ph;
+    const val = (minV + pct * range).toFixed(1);
+    return `<line x1="${pad.l}" y1="${y}" x2="${w-pad.r}" y2="${y}" stroke="rgba(255,255,255,.05)" stroke-dasharray="3 3"/>
+      <text x="${pad.l-4}" y="${y+4}" text-anchor="end" fill="var(--text3)" font-size="9" font-family="var(--mono)">${val}</text>`;
+  }).join('');
+  const labels = points.map((p,i) => {
+    const x = pad.l + (i / (points.length-1)) * pw;
+    return `<text x="${x}" y="${h-6}" text-anchor="middle" fill="var(--text3)" font-size="9" font-family="var(--font)">${p.label}</text>`;
+  }).join('');
+  const dots = pts.map((p,i) =>
+    `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4" fill="var(--blue2)" stroke="var(--bg)" stroke-width="2" style="filter:drop-shadow(0 0 4px var(--blue))">
+      <animate attributeName="r" from="0" to="4" dur=".3s" begin="${0.5+i*0.08}s" fill="freeze"/>
+    </circle>
+    <title>${points[i].label}: ${points[i].value.toFixed(1)}</title>`
+  ).join('');
+  return `<div class="line-chart-wrap">
+    <svg width="100%" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMid meet">
+      ${gridLines}
+      <defs>
+        <linearGradient id="lineGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="var(--blue)" stop-opacity=".25"/>
+          <stop offset="100%" stop-color="var(--blue)" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+      <path d="${areaD}" fill="url(#lineGrad)">
+        <animate attributeName="opacity" from="0" to="1" dur=".6s" fill="freeze"/>
+      </path>
+      <path d="${pathD}" fill="none" stroke="var(--blue2)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="filter:drop-shadow(0 0 6px var(--blue))">
+        <animate attributeName="stroke-dasharray" from="0 9999" to="9999 0" dur="1s" fill="freeze" calcMode="spline" keySplines="0.22 1 0.36 1"/>
+      </path>
+      ${dots}
+      ${labels}
+    </svg>
+  </div>`;
+}
+
+function sectionDivider(icon, title, subtitle, bgColor='var(--blue-bg)', iconColor='var(--blue2)') {
+  return `<div class="sec-divider">
+    <div class="sec-icon" style="background:${bgColor};color:${iconColor}">${icon}</div>
+    <div class="sec-info"><h3>${title}</h3><p>${subtitle}</p></div>
+  </div>`;
+}
+
 async function pageDashboard(el) {
   const [stats, sacStats, sats, manutOrders, manutSats] = await Promise.all([
     getDashboardStats(), SacService.getStats(), getSatisfactions(),
     getMaintenanceOrders(), getMaintenanceSatisfactions(),
   ]);
+
+  // Entregas stats
   const distNotas = [0,0,0,0,0,0,0,0,0,0,0];
   sats.filter(s=>s.nota_atendimento!=null).forEach(s => distNotas[s.nota_atendimento]++);
-  const maxDist = Math.max(...distNotas, 1);
   const pctSat  = sats.length > 0 ? ((sats.filter(s=>s.nota_atendimento>=8).length/sats.length)*100).toFixed(0) : 0;
-  const pctSac  = sats.length > 0 ? ((sats.filter(s=>s.enviado_para_sac).length/sats.length)*100).toFixed(0) : 0;
 
   // Manutenção stats
   const mPend = manutOrders.filter(o => o.status_pesquisa === 'pendente').length;
@@ -1033,18 +1265,70 @@ async function pageDashboard(el) {
   const mMedia = mNotas.length > 0 ? (mNotas.reduce((a,b)=>a+b.nota_atendimento,0)/mNotas.length).toFixed(1) : '—';
   const mProb  = manutSats.filter(s => s.problema_reincidente).length;
 
+  // Monthly evolution data
+  const allSats = [...sats.map(s=>({...s, _tipo:'entrega'})), ...manutSats.map(s=>({...s, _tipo:'manutencao'}))];
+  const monthMap = {};
+  allSats.filter(s=>s.nota_atendimento!=null && s.data_ligacao).forEach(s => {
+    const m = String(s.data_ligacao).slice(0,7); // YYYY-MM
+    if (!monthMap[m]) monthMap[m] = [];
+    monthMap[m].push(s.nota_atendimento);
+  });
+  const months = Object.keys(monthMap).sort().slice(-6);
+  const linePoints = months.map(m => {
+    const ns = monthMap[m];
+    return { label: m.slice(5) + '/' + m.slice(2,4), value: +(ns.reduce((a,b)=>a+b,0)/ns.length).toFixed(1) };
+  });
+
+  // Status donut (combined)
+  const allOrders = [...(stats.deliveries||[]), ...manutOrders];
+  const statusCounts = {
+    pendente: allOrders.filter(o=>o.status_pesquisa==='pendente').length,
+    respondido: allOrders.filter(o=>['respondido','concluido'].includes(o.status_pesquisa)).length,
+    nao_atendeu: allOrders.filter(o=>o.status_pesquisa==='nao_atendeu').length,
+    remarcar: allOrders.filter(o=>o.status_pesquisa==='remarcar').length,
+  };
+
+  // Bar chart data
+  const barData = distNotas.map((v,i) => ({
+    key: i, label: String(i), value: v,
+    color: i>=9?'var(--green2)':i>=7?'var(--amber2)':i>=5?'var(--amber)':'var(--red2)',
+  }));
+
+  // Manutenção dist notas
+  const mDistNotas = [0,0,0,0,0,0,0,0,0,0,0];
+  manutSats.filter(s=>s.nota_atendimento!=null).forEach(s => mDistNotas[s.nota_atendimento]++);
+  const mBarData = mDistNotas.map((v,i) => ({
+    key: i, label: String(i), value: v,
+    color: i>=9?'var(--green2)':i>=7?'var(--amber2)':i>=5?'var(--amber)':'var(--red2)',
+  }));
+
   el.innerHTML = `
-    <div class="sec-title">Pesquisas de Satisfação — Entregas</div>
-    <div class="kpi-grid mb20">
+    ${sectionDivider('📦','Pesquisas de Satisfação — Entregas',`${stats.totalEntregas} entregas · ${stats.respondidas} respondidas`,'var(--blue-bg)','var(--blue2)')}
+    <div class="kpi-grid dash-section mb20">
       ${kpi('blue','📦','Total Entregas',stats.totalEntregas,'cadastradas')}
       ${kpi('amber','⏳','Pendentes',stats.pendentes,'aguardando contato')}
       ${kpi('green','✅','Respondidas',stats.respondidas,'pesquisas concluídas')}
       ${kpi('purple','⭐','Média Geral',stats.mediaGeral??'—','nota de satisfação')}
       ${kpi('green','😊','Satisfeitos (≥8)',sats.filter(s=>s.nota_atendimento>=8).length,`${pctSat}% do total`)}
-      ${kpi('red','😞','Insatisfeitos (<8)',sats.filter(s=>s.nota_atendimento!=null&&s.nota_atendimento<8).length,`${pctSac}% → SAC`)}
+      ${kpi('red','😞','Insatisfeitos',sats.filter(s=>s.nota_atendimento!=null&&s.nota_atendimento<8).length,'nota < 8 → SAC')}
     </div>
-    <div class="sec-title">Pesquisas de Satisfação — Manutenções</div>
-    <div class="kpi-grid mb20">
+    <div class="dash-grid dash-g3 mb20 dash-section">
+      <div class="chart-card" style="--chart-accent:var(--purple);--chart-accent2:var(--blue)">
+        <div class="chart-title"><span class="ct-icon">⭐</span>Média Geral — Entregas</div>
+        ${renderGauge(stats.mediaGeral, 10, 170, '')}
+      </div>
+      <div class="chart-card" style="--chart-accent:var(--amber);--chart-accent2:var(--green)">
+        <div class="chart-title"><span class="ct-icon">📊</span>Distribuição de Notas — Entregas</div>
+        ${renderBarChartSVG(barData)}
+      </div>
+      <div class="chart-card" style="--chart-accent:var(--green);--chart-accent2:var(--amber)">
+        <div class="chart-title"><span class="ct-icon">🏆</span>Ranking Técnicos<span class="muted small" style="margin-left:auto">${stats.rankingTecnicos.length}</span></div>
+        ${stats.rankingTecnicos.length===0?emptyState('👷','Sem dados'):stats.rankingTecnicos.slice(0,5).map((t,i)=>rankItem(t,i)).join('')}
+      </div>
+    </div>
+
+    ${sectionDivider('🔧','Pesquisas de Satisfação — Manutenções',`${manutOrders.length} ordens · ${mResp} respondidas`,'var(--amber-bg)','var(--amber2)')}
+    <div class="kpi-grid dash-section mb20">
       ${kpi('blue','🔧','Total Manutenções',manutOrders.length,'cadastradas')}
       ${kpi('amber','⏳','Pendentes',mPend,'aguardando contato')}
       ${kpi('green','✅','Respondidas',mResp,'pesquisas concluídas')}
@@ -1052,38 +1336,50 @@ async function pageDashboard(el) {
       ${kpi('red','🔄','Reincidentes',mProb,'problemas que voltaram')}
       ${kpi('green','😊','Satisfeitos (≥8)',mNotas.filter(n=>n.nota_atendimento>=8).length,`${mNotas.length>0?((mNotas.filter(n=>n.nota_atendimento>=8).length/mNotas.length)*100).toFixed(0):0}%`)}
     </div>
-    <div class="sec-title">SAC</div>
-    <div class="kpi-grid mb20">
-      ${kpi('red','🚨','Pendentes SAC',sacStats.pendentes,'aguardando')}
-      ${kpi('amber','🔄','Em Atendimento',sacStats.em_atendimento,'em andamento')}
-      ${kpi('purple','📞','Aguard. Retorno',sacStats.aguardando_retorno,'agendados')}
-      ${kpi('green','✅','Resolvidos',sacStats.resolvidos,'casos concluídos')}
-      ${sacStats.vencidos>0?kpi('red','⚡','Vencidos / Urgentes',sacStats.vencidos,'retornos em atraso'):''}
-    </div>
-    <div class="g2 mb20">
-      <div class="card">
-        <div class="card-hd"><span class="card-title">📊 Distribuição de Notas</span></div>
-        ${distNotas.map((v,n)=>{
-          const color=n>=9?'var(--green2)':n>=7?'var(--amber2)':n>=5?'var(--amber)':'var(--red2)';
-          const pct=(v/maxDist*100).toFixed(0);
-          return `<div class="flex-c gap8" style="margin-bottom:6px">
-            <div style="width:20px;text-align:right;font-family:var(--mono);font-size:12px;color:var(--text3)">${n}</div>
-            <div style="flex:1;height:20px;background:rgba(255,255,255,.04);border-radius:4px;overflow:hidden">
-              <div style="width:${pct}%;height:100%;background:${color};border-radius:4px;transition:width .5s;display:flex;align-items:center;padding-left:6px">
-                ${v>0?`<span style="font-size:10px;font-weight:700;color:rgba(0,0,0,.7)">${v}</span>`:''}
-              </div>
-            </div>
-          </div>`;
-        }).join('')}
+    <div class="dash-grid dash-g3 mb20 dash-section">
+      <div class="chart-card" style="--chart-accent:var(--amber);--chart-accent2:var(--red)">
+        <div class="chart-title"><span class="ct-icon">⭐</span>Média Geral — Manutenções</div>
+        ${renderGauge(mMedia, 10, 170, '')}
       </div>
-      <div class="card">
-        <div class="card-hd"><span class="card-title">🏆 Ranking Técnicos</span><span class="muted small">${stats.rankingTecnicos.length} técnicos</span></div>
-        ${stats.rankingTecnicos.length===0?emptyState('👷','Sem dados'):stats.rankingTecnicos.slice(0,6).map((t,i)=>rankItem(t,i)).join('')}
+      <div class="chart-card" style="--chart-accent:var(--amber);--chart-accent2:var(--green)">
+        <div class="chart-title"><span class="ct-icon">📊</span>Distribuição de Notas — Manutenções</div>
+        ${renderBarChartSVG(mBarData)}
+      </div>
+      <div class="chart-card" style="--chart-accent:var(--cyan);--chart-accent2:var(--purple)">
+        <div class="chart-title"><span class="ct-icon">🏢</span>Ranking Filiais<span class="muted small" style="margin-left:auto">${stats.rankingFiliais.length}</span></div>
+        ${stats.rankingFiliais.length===0?emptyState('🏢','Sem dados'):stats.rankingFiliais.slice(0,5).map((f,i)=>rankItem(f,i)).join('')}
+      </div>
+    </div>
+
+    ${sectionDivider('📈','Visão Consolidada','Evolução, status e SAC','var(--purple-bg)','var(--purple2)')}
+    <div class="dash-grid dash-g3 mb20 dash-section">
+      <div class="chart-card" style="--chart-accent:var(--blue);--chart-accent2:var(--cyan)">
+        <div class="chart-title"><span class="ct-icon">📈</span>Evolução Mensal da Média</div>
+        ${renderLineChart(linePoints)}
+      </div>
+      <div class="chart-card" style="--chart-accent:var(--green);--chart-accent2:var(--amber)">
+        <div class="chart-title"><span class="ct-icon">🎯</span>Status Geral (Entregas + Manutenções)</div>
+        ${renderDonut([
+          { label:'Pendentes', value:statusCounts.pendente, color:'var(--amber2)' },
+          { label:'Respondidos', value:statusCounts.respondido, color:'var(--green2)' },
+          { label:'Não Atendeu', value:statusCounts.nao_atendeu, color:'var(--red2)' },
+          { label:'Remarcar', value:statusCounts.remarcar, color:'var(--purple2)' },
+        ])}
+      </div>
+      <div class="chart-card" style="--chart-accent:var(--red);--chart-accent2:var(--amber)">
+        <div class="chart-title"><span class="ct-icon">🆘</span>SAC</div>
+        ${renderDonut([
+          { label:'Pendentes', value:sacStats.pendentes, color:'var(--red2)' },
+          { label:'Em Atendimento', value:sacStats.em_atendimento, color:'var(--amber2)' },
+          { label:'Aguard. Retorno', value:sacStats.aguardando_retorno, color:'var(--purple2)' },
+          { label:'Resolvidos', value:sacStats.resolvidos, color:'var(--green2)' },
+          { label:'Encerrados', value:sacStats.encerrados, color:'var(--text3)' },
+        ])}
       </div>
     </div>
     ${stats.retorno>0?`
-    <div class="card" style="border-color:rgba(139,92,246,.3)">
-      <div class="card-hd"><span class="card-title">📞 Aguardando Retorno</span><span class="retorno-tag">⚡ ${stats.retorno}</span></div>
+    <div class="chart-card dash-section" style="border-color:rgba(139,92,246,.2);--chart-accent:var(--purple);--chart-accent2:var(--cyan)">
+      <div class="chart-title"><span class="ct-icon">📞</span>Aguardando Retorno<span class="retorno-tag" style="margin-left:auto">⚡ ${stats.retorno}</span></div>
       <div class="tbl-wrap"><table>
         <thead><tr><th>Cliente</th><th>Filial</th><th>Técnico</th><th>Nota</th></tr></thead>
         <tbody>${stats.satisfactions.filter(x=>x.deseja_retorno).slice(0,5).map(x=>`
@@ -1092,7 +1388,8 @@ async function pageDashboard(el) {
           <td>${chipNota(x.nota_atendimento)}</td></tr>`).join('')}
         </tbody>
       </table></div>
-    </div>`:''}`;
+    </div>`:''}`
+  ;
 }
 
 async function pageEntregas(el) {
