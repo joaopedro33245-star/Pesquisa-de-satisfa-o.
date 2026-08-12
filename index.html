@@ -487,6 +487,27 @@ async function insertClientesCarteira(rows) {
   if (error) throw error;
   return data;
 }
+// Usada na importação por planilha: se o código do cliente já existir (ex: ele
+// apareceu antes em outra rota), atualiza o cadastro em vez de dar erro de
+// duplicidade; se não existir, cria um novo.
+async function upsertClientesCarteira(rows) {
+  const { data, error } = await sb.from('clientes_carteira').upsert(rows, { onConflict: 'codigo_cliente' }).select();
+  if (error) throw error;
+  return data;
+}
+// Verifica, em lotes, quais desses códigos de cliente já existem na base e em
+// qual rota — usado para avisar antes de importar quando um cliente vai "mudar"
+// de rota por já estar cadastrado em outra.
+async function getRotasAtuaisPorCodigo(codigos) {
+  const mapa = new Map();
+  for (let i = 0; i < codigos.length; i += 200) {
+    const lote = codigos.slice(i, i + 200);
+    const { data, error } = await sb.from('clientes_carteira').select('codigo_cliente,rota').in('codigo_cliente', lote);
+    if (error) throw error;
+    (data || []).forEach(r => mapa.set(r.codigo_cliente, r.rota));
+  }
+  return mapa;
+}
 async function updateClienteCarteiraStatus(id, status) {
   const { error } = await sb.from('clientes_carteira').update({ status_pesquisa: status }).eq('id', id);
   if (error) throw error;
@@ -3116,7 +3137,17 @@ async function previewImportCarteira(input) {
       };
     }).filter(r=>r.codigo_cliente&&r.nome_cliente);
     if(!App.importCarteiraRows.length){prev.innerHTML='<div class="red small mt12">Nenhum registro válido. Confira se o arquivo tem as colunas de código e nome do cliente.</div>';return;}
+
+    // Avisa quando um cliente já existe cadastrado em outra rota — ao importar,
+    // ele será atualizado (não duplicado) e passa a valer a rota deste arquivo.
+    let trocandoRota = 0;
+    try {
+      const mapaRotas = await getRotasAtuaisPorCodigo(App.importCarteiraRows.map(r=>r.codigo_cliente));
+      trocandoRota = App.importCarteiraRows.filter(r => mapaRotas.has(r.codigo_cliente) && mapaRotas.get(r.codigo_cliente) && mapaRotas.get(r.codigo_cliente)!==rotaImport).length;
+    } catch(_) { /* aviso é best-effort; se falhar, segue sem ele */ }
+
     prev.innerHTML=`<div class="green small mt12 mb16">✅ ${App.importCarteiraRows.length} registros encontrados — todos marcados como <strong>${rotaImport}</strong></div>
+      ${trocandoRota>0?`<div class="small mt12 mb12" style="color:var(--amber2)">⚠️ ${trocandoRota} desse${trocandoRota>1?'s':''} já ${trocandoRota>1?'estão':'está'} cadastrado${trocandoRota>1?'s':''} em outra rota — ${trocandoRota>1?'serão movidos':'será movido'} para <strong>${rotaImport}</strong> (os dados desses clientes serão atualizados, não duplicados).</div>`:''}
       <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;max-height:180px;overflow-y:auto">
         <table style="font-size:12px"><thead><tr style="background:var(--bg3)">
           <th style="padding:8px 10px">Código</th><th style="padding:8px 10px">Nome</th>
@@ -3142,8 +3173,8 @@ async function confirmarImportCarteira() {
   App.importCarteiraRows.forEach(r=>{ r.rota=rotaImport; r.responsavel_sac=respImport; });
   load(true);
   try {
-    for(let i=0;i<App.importCarteiraRows.length;i+=100) await insertClientesCarteira(App.importCarteiraRows.slice(i,i+100));
-    closeModal(); toast(`${App.importCarteiraRows.length} clientes importados! ✅`); App.importCarteiraRows=[];
+    for(let i=0;i<App.importCarteiraRows.length;i+=100) await upsertClientesCarteira(App.importCarteiraRows.slice(i,i+100));
+    closeModal(); toast(`${App.importCarteiraRows.length} clientes importados/atualizados! ✅`); App.importCarteiraRows=[];
     await pageCarteira(qs('#page'));
   } catch(e) { toast('Erro: '+e.message,'err'); }
   finally { load(false); }
