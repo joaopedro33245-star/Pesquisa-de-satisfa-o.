@@ -481,6 +481,10 @@ async function updateClienteCarteiraStatus(id, status) {
   const { error } = await sb.from('clientes_carteira').update({ status_pesquisa: status }).eq('id', id);
   if (error) throw error;
 }
+async function updateClienteCarteiraObservacao(id, texto) {
+  const { error } = await sb.from('clientes_carteira').update({ observacoes_cliente: texto || null }).eq('id', id);
+  if (error) throw error;
+}
 
 // Alimenta/atualiza a Carteira de Clientes automaticamente a partir de uma
 // Entrega cadastrada (manual ou por importação), vinculando a rota da entrega.
@@ -1675,7 +1679,7 @@ async function pageCarteira(el) {
 function rowCarteira(d) {
   return `<tr id="row-cart-${d.id}">
     <td class="td-mono">${d.codigo_cliente||'—'}</td>
-    <td class="td-main">${d.nome_cliente||'—'}${d.endereco?`<div class="muted small mt-2" style="font-weight:400;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${d.endereco}</div>`:''}</td>
+    <td class="td-main">${d.nome_cliente||'—'}${d.observacoes_cliente?` <span title="${String(d.observacoes_cliente).replace(/"/g,'&quot;')}">📝</span>`:''}${d.endereco?`<div class="muted small mt-2" style="font-weight:400;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${d.endereco}</div>`:''}</td>
     <td>${d.filial||'—'}</td>
     <td>${d.rota||'—'}</td>
     <td>${d.responsavel_sac||'—'}</td>
@@ -1907,6 +1911,7 @@ async function pagePesquisaGeral(el) {
                     <div class="bold">${d.nome_cliente||d.codigo_cliente}</div>
                     <div class="muted small mt-2">${d.filial||'—'} · ${d.rota?'Rota '+d.rota+' · ':''}${d.responsavel_sac||'—'}</div>
                     <div class="muted small">${d.telefone||'—'}${d.endereco?' · '+d.endereco:''}</div>
+                    ${d.observacoes_cliente?`<div class="muted small mt-2" style="max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">📝 ${d.observacoes_cliente}</div>`:''}
                   </div>
                   ${badgeStatus(d.status_pesquisa)}
                 </div>
@@ -1929,6 +1934,18 @@ function selCliente(id) {
   renderFormPesquisaGeral();
 }
 
+async function salvarObservacaoCliente() {
+  if (!App.clienteSel) return;
+  const texto = val('gobs-cliente').trim();
+  try {
+    await updateClienteCarteiraObservacao(App.clienteSel.id, texto);
+    App.clienteSel.observacoes_cliente = texto || null;
+    const item = App.carteira.find(c => String(c.id)===String(App.clienteSel.id));
+    if (item) item.observacoes_cliente = texto || null;
+    toast('Observação salva! ✅');
+  } catch(e) { toast('Erro: '+e.message,'err'); }
+}
+
 function renderFormPesquisaGeral() {
   const d = App.clienteSel;
   qs('#form-cont-g').innerHTML = `
@@ -1937,6 +1954,11 @@ function renderFormPesquisaGeral() {
       <div class="muted small mt-2">${d.filial||'—'} · ${d.rota?'Rota '+d.rota+' · ':''}${d.responsavel_sac||'—'}</div>
       ${d.endereco?`<div class="muted small mt-2">📍 ${d.endereco}</div>`:''}
       ${d.responsavel_cliente?`<div class="muted small mt-2">👤 Contato de referência: ${d.responsavel_cliente}</div>`:''}
+      <div class="form-group" style="margin-top:12px;margin-bottom:0">
+        <label class="form-label">📝 Observações sobre o Cliente</label>
+        <textarea class="form-ctrl" id="gobs-cliente" placeholder="Anotações internas sobre esse cliente (histórico, avisos, preferências…) — fica salvo no cadastro dele.">${d.observacoes_cliente||''}</textarea>
+        <button type="button" class="btn btn-ghost btn-sm" style="margin-top:8px" onclick="salvarObservacaoCliente()">💾 Salvar Observação</button>
+      </div>
     </div>
     <form onsubmit="salvarPesquisaGeral(event)">
       <div class="form-group">
@@ -2883,6 +2905,7 @@ function openNovoCliente() {
           <div class="form-group"><label class="form-label">Telefone</label><input class="form-ctrl" id="nc-tel" placeholder="(00) 00000-0000" /></div>
           <div class="form-group"><label class="form-label">Responsável SAC</label><input class="form-ctrl" id="nc-resp" placeholder="Quem vai fazer o contato" /></div>
         </div>
+        <div class="form-group"><label class="form-label">Observações sobre o Cliente</label><textarea class="form-ctrl" id="nc-obs" placeholder="Anotações internas (opcional)"></textarea></div>
         <div class="modal-ft" style="padding:0;margin-top:8px">
           <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
           <button type="submit" class="btn btn-primary">Salvar</button>
@@ -2893,7 +2916,7 @@ function openNovoCliente() {
 
 async function salvarNovoCliente(e) {
   e.preventDefault();
-  const row={codigo_cliente:val('nc-cod').trim(),nome_cliente:val('nc-nome').trim(),filial:val('nc-fil').trim()||null,rota:val('nc-rota').trim(),telefone:val('nc-tel').trim()||null,responsavel_sac:val('nc-resp').trim()||null,status_pesquisa:'pendente'};
+  const row={codigo_cliente:val('nc-cod').trim(),nome_cliente:val('nc-nome').trim(),filial:val('nc-fil').trim()||null,rota:val('nc-rota').trim(),telefone:val('nc-tel').trim()||null,responsavel_sac:val('nc-resp').trim()||null,observacoes_cliente:val('nc-obs').trim()||null,status_pesquisa:'pendente'};
   load(true);
   try { await insertClientesCarteira([row]); closeModal(); toast('Cliente cadastrado! ✅'); await pageCarteira(qs('#page')); }
   catch(er) { toast('Erro: '+er.message,'err'); }
@@ -2950,6 +2973,7 @@ async function previewImportCarteira(input) {
         telefone:str(r,'Telefone 1','Telefone','telefone','Fone','fone')||str(r,'Telefone 2')||null,
         responsavel_sac:respImport,
         responsavel_cliente:str(r,'Responsável','responsavel')||null,
+        observacoes_cliente:str(r,'Observações','Observação','observacoes','observacao','Obs','obs')||null,
         endereco:endereco||null,
         status_pesquisa:'pendente',
       };
