@@ -1,5 +1,6 @@
 
 
+
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -457,6 +458,70 @@ async function insertMaintenanceSatisfaction(row) {
 }
 async function getManutSatByOrder(orderId) {
   const { data, error } = await sb.from('maintenance_satisfaction').select('*').eq('order_id', orderId).maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+// ─── Carteira de Clientes: Data Layer ─────────────────────────────────────────
+async function getClientesCarteira(filters = {}) {
+  let q = sb.from('clientes_carteira').select('*').order('created_at', { ascending: false });
+  if (filters.status)  q = q.eq('status_pesquisa', filters.status);
+  if (filters.filial)  q = q.eq('filial', filters.filial);
+  if (filters.rota)    q = q.eq('rota', filters.rota);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data || [];
+}
+async function insertClientesCarteira(rows) {
+  const { data, error } = await sb.from('clientes_carteira').insert(rows).select();
+  if (error) throw error;
+  return data;
+}
+async function updateClienteCarteiraStatus(id, status) {
+  const { error } = await sb.from('clientes_carteira').update({ status_pesquisa: status }).eq('id', id);
+  if (error) throw error;
+}
+
+// Alimenta/atualiza a Carteira de Clientes automaticamente a partir de uma
+// Entrega cadastrada (manual ou por importação), vinculando a rota da entrega.
+// Só grava código, nome, filial e rota — nunca sobrescreve telefone, responsável
+// SAC, endereço ou o status da pesquisa geral de um cliente que já existia.
+async function upsertClientesCarteiraDeEntregas(entregas) {
+  const payload = (entregas || [])
+    .filter(e => e.codigo_cliente && e.nome_cliente)
+    .map(e => {
+      const row = { codigo_cliente: e.codigo_cliente, nome_cliente: e.nome_cliente };
+      if (e.filial) row.filial = e.filial;
+      if (e.rota)   row.rota   = e.rota;
+      return row;
+    });
+  if (!payload.length) return;
+  const { error } = await sb.from('clientes_carteira').upsert(payload, { onConflict: 'codigo_cliente' });
+  if (error) throw error;
+}
+
+// ─── Pesquisa de Satisfação Geral: Data Layer ─────────────────────────────────
+async function getPesquisasGerais(filters = {}) {
+  let q = sb.from('pesquisa_satisfacao_geral').select('*').order('created_at', { ascending: false });
+  if (filters.filial)        q = q.eq('filial', filters.filial);
+  if (filters.rota)          q = q.eq('rota', filters.rota);
+  if (filters.status)        q = q.eq('status', filters.status);
+  if (filters.dateFrom)      q = q.gte('data_ligacao', filters.dateFrom);
+  if (filters.dateTo)        q = q.lte('data_ligacao', filters.dateTo);
+  if (filters.teveProblem)   q = q.eq('teve_problema', true);
+  if (filters.desejaRetorno) q = q.eq('deseja_retorno', true);
+  if (filters.notaMax != null) q = q.lte('nota_geral', filters.notaMax);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data || [];
+}
+async function insertPesquisaGeral(row) {
+  const { data, error } = await sb.from('pesquisa_satisfacao_geral').insert([row]).select();
+  if (error) throw error;
+  return data[0];
+}
+async function getPesquisaGeralByCliente(clienteId) {
+  const { data, error } = await sb.from('pesquisa_satisfacao_geral').select('*').eq('cliente_id', clienteId).maybeSingle();
   if (error) throw error;
   return data;
 }
@@ -949,6 +1014,7 @@ const App = {
   page:'dashboard', deliveries:[], satisfactions:[], sacAtendimentos:[],
   manutOrders:[], manutSel:null, togglesM:{}, importManutRows:[],
   toggles:{}, importRows:[], entregaSel:null,
+  carteira:[], clienteSel:null, togglesG:{}, importCarteiraRows:[],
   currentUser:null, currentProfile:null, menuAberto:false, _relFiltrado:[],
 };
 
@@ -1058,6 +1124,8 @@ function buildNav() {
   const isAdmin = App.currentProfile?.perfil === 'admin';
   const items = [
     { id:'dashboard',  icon:'📊', label:'Dashboard' },
+    { id:'carteira',   icon:'👥', label:'Carteira de Clientes' },
+    { id:'pesq-geral', icon:'🗣️', label:'Pesquisa Geral', badge:'badge-geral' },
     { id:'entregas',   icon:'📦', label:'Entregas' },
     { id:'pesquisa',   icon:'📋', label:'Pesquisa', badge:'badge-pend' },
     { id:'manutencoes',icon:'🔧', label:'Manutenções' },
@@ -1093,6 +1161,8 @@ async function goto(page) {
   document.querySelectorAll('.nav-item').forEach(el => el.classList.toggle('active', el.dataset.p === page));
   const titles = {
     dashboard:  ['📊 Dashboard',   'Visão geral das pesquisas'],
+    carteira:   ['👥 Carteira de Clientes', 'Base de clientes importada por rota'],
+    'pesq-geral':['🗣️ Pesquisa Geral', 'Pesquisa de satisfação geral com o cliente'],
     entregas:   ['📦 Entregas',    'Gerenciar entregas e serviços concluídos'],
     pesquisa:   ['📋 Pesquisa',    'Registrar pesquisa de satisfação pós-entrega'],
     manutencoes:['🔧 Manutenções', 'Gerenciar ordens de manutenção'],
@@ -1107,6 +1177,8 @@ async function goto(page) {
   try {
     const pg = qs('#page');
     if (page === 'dashboard')   await pageDashboard(pg);
+    if (page === 'carteira')    await pageCarteira(pg);
+    if (page === 'pesq-geral')  await pagePesquisaGeral(pg);
     if (page === 'entregas')    await pageEntregas(pg);
     if (page === 'pesquisa')    await pagePesquisa(pg);
     if (page === 'manutencoes') await pageManutencoes(pg);
@@ -1133,6 +1205,11 @@ async function atualizarBadges() {
     if (bs) { bs.textContent = sacPend; bs.style.display = sacPend > 0 ? '' : 'none'; }
     const bm = qs('#badge-manut');
     if (bm) { bm.textContent = manutPend.length; bm.style.display = manutPend.length > 0 ? '' : 'none'; }
+  } catch {}
+  try {
+    const carteiraPend = await getClientesCarteira({ status:'pendente' });
+    const bg = qs('#badge-geral');
+    if (bg) { bg.textContent = carteiraPend.length; bg.style.display = carteiraPend.length > 0 ? '' : 'none'; }
   } catch {}
 }
 
@@ -1551,6 +1628,81 @@ function filtrarEntregas() {
   });
 }
 
+// ─── Carteira de Clientes: Listagem ───────────────────────────────────────────
+async function pageCarteira(el) {
+  const list = await getClientesCarteira();
+  App.carteira = list;
+  const filiais = [...new Set(list.map(d=>d.filial).filter(Boolean))].sort();
+  const rotas   = [...new Set(list.map(d=>d.rota).filter(Boolean))].sort();
+  el.innerHTML = `
+    <div class="flex-c gap12 mb20" style="justify-content:space-between;flex-wrap:wrap">
+      <span class="muted small">${list.length} clientes na carteira</span>
+      <div class="flex-c gap12">
+        <button class="btn btn-ghost" onclick="openImportCarteira()">⬆ Importar CSV/XLSX</button>
+        <button class="btn btn-primary" onclick="openNovoCliente()">＋ Novo Cliente</button>
+      </div>
+    </div>
+    <div class="filters">
+      <div class="form-group"><label class="form-label">Status</label>
+        <select class="form-ctrl" id="fc-status" onchange="filtrarCarteira()" style="min-width:140px">
+          <option value="">Todos</option>
+          <option>pendente</option><option>respondido</option>
+          <option>nao_atendeu</option><option>remarcar</option><option>concluido</option>
+        </select>
+      </div>
+      <div class="form-group"><label class="form-label">Filial</label>
+        <select class="form-ctrl" id="fc-filial" onchange="filtrarCarteira()" style="min-width:140px">
+          <option value="">Todas</option>${filiais.map(f=>`<option>${f}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group"><label class="form-label">Rota</label>
+        <select class="form-ctrl" id="fc-rota" onchange="filtrarCarteira()" style="min-width:120px">
+          <option value="">Todas</option>${rotas.map(r=>`<option>${r}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group"><label class="form-label">Buscar</label>
+        <input class="form-ctrl" id="fc-busca" placeholder="Nome ou código…" oninput="filtrarCarteira()" style="min-width:200px" />
+      </div>
+    </div>
+    <div class="card" style="overflow:hidden">
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>Código</th><th>Cliente</th><th>Filial</th><th>Rota</th><th>Responsável SAC</th><th>Telefone</th><th>Status</th><th>Ações</th></tr></thead>
+        <tbody id="tb-cart">${list.length===0?`<tr><td colspan="8">${emptyState('👥','Nenhum cliente na carteira','Importe a base de clientes por rota')}</td></tr>`:list.map(rowCarteira).join('')}</tbody>
+      </table></div>
+    </div>`;
+}
+
+function rowCarteira(d) {
+  return `<tr id="row-cart-${d.id}">
+    <td class="td-mono">${d.codigo_cliente||'—'}</td>
+    <td class="td-main">${d.nome_cliente||'—'}${d.endereco?`<div class="muted small mt-2" style="font-weight:400;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${d.endereco}</div>`:''}</td>
+    <td>${d.filial||'—'}</td>
+    <td>${d.rota||'—'}</td>
+    <td>${d.responsavel_sac||'—'}</td>
+    <td>${d.telefone||'—'}</td>
+    <td>${badgeStatus(d.status_pesquisa)}</td>
+    <td>${d.status_pesquisa==='pendente'
+      ?`<button class="btn btn-primary btn-sm" onclick="irParaPesquisaGeral('${d.id}')">🗣️ Pesquisar</button>`
+      :`<button class="btn btn-ghost btn-sm" onclick="verDetalhesCarteira('${d.id}')">👁 Ver</button>`}
+    </td>
+  </tr>`;
+}
+
+function filtrarCarteira() {
+  const status = val('fc-status');
+  const filial = val('fc-filial');
+  const rota   = val('fc-rota');
+  const busca  = val('fc-busca').toLowerCase();
+  qs('#tb-cart')?.querySelectorAll('tr').forEach(row => {
+    const t = row.textContent.toLowerCase();
+    const ok = (!status||t.includes(statusLabel(status).toLowerCase()))
+      && (!filial||t.includes(filial.toLowerCase()))
+      && (!rota||t.includes(rota.toLowerCase()))
+      && (!busca||t.includes(busca));
+    row.style.display = ok ? '' : 'none';
+  });
+}
+
 async function pagePesquisa(el) {
   const list = await getDeliveries({ status:'pendente' });
   App.deliveries = list;
@@ -1727,6 +1879,190 @@ async function salvarPesquisa(e) {
     toast(msg);
     App.entregaSel=null;
     await pagePesquisa(qs('#page'));
+    await atualizarBadges();
+  } catch(er) { toast('Erro: '+er.message,'err'); }
+  finally { load(false); }
+}
+
+// ─── Pesquisa de Satisfação Geral ──────────────────────────────────────────────
+async function pagePesquisaGeral(el) {
+  const list = await getClientesCarteira({ status:'pendente' });
+  App.carteira    = list;
+  App.clienteSel  = null;
+  App.togglesG    = {};
+  el.innerHTML = `
+    <div class="g2" style="align-items:start;gap:20px">
+      <div>
+        <div class="sec-title">Pendentes (${list.length})</div>
+        <div id="lista-pend-g" style="display:flex;flex-direction:column;gap:8px">
+          ${list.length===0
+            ?`<div class="card">${emptyState('✅','Tudo em dia!','Nenhuma pesquisa geral pendente')}</div>`
+            :list.map(d=>`
+              <div class="card" id="gcard-${d.id}" style="cursor:pointer;transition:border-color .15s"
+                onclick="selCliente('${d.id}')"
+                onmouseenter="this.style.borderColor='var(--blue)'"
+                onmouseleave="if(!App.clienteSel||App.clienteSel.id!='${d.id}')this.style.borderColor='var(--border)'">
+                <div class="flex-c gap12" style="justify-content:space-between">
+                  <div>
+                    <div class="bold">${d.nome_cliente||d.codigo_cliente}</div>
+                    <div class="muted small mt-2">${d.filial||'—'} · ${d.rota?'Rota '+d.rota+' · ':''}${d.responsavel_sac||'—'}</div>
+                    <div class="muted small">${d.telefone||'—'}${d.endereco?' · '+d.endereco:''}</div>
+                  </div>
+                  ${badgeStatus(d.status_pesquisa)}
+                </div>
+              </div>`).join('')}
+        </div>
+      </div>
+      <div>
+        <div class="sec-title">Formulário</div>
+        <div id="form-cont-g" class="card">${emptyState('👈','Selecione um cliente','Clique em um cliente à esquerda')}</div>
+      </div>
+    </div>`;
+}
+
+function selCliente(id) {
+  document.querySelectorAll('[id^="gcard-"]').forEach(c => { c.style.borderColor='var(--border)'; c.style.background='var(--card)'; });
+  const card = qs(`#gcard-${id}`);
+  if (card) { card.style.borderColor='var(--blue)'; card.style.background='rgba(59,130,246,.04)'; }
+  App.clienteSel = App.carteira.find(d => String(d.id)===String(id));
+  App.togglesG   = {};
+  renderFormPesquisaGeral();
+}
+
+function renderFormPesquisaGeral() {
+  const d = App.clienteSel;
+  qs('#form-cont-g').innerHTML = `
+    <div style="padding-bottom:14px;margin-bottom:14px;border-bottom:1px solid var(--border)">
+      <div class="bold">${d.nome_cliente||d.codigo_cliente}</div>
+      <div class="muted small mt-2">${d.filial||'—'} · ${d.rota?'Rota '+d.rota+' · ':''}${d.responsavel_sac||'—'}</div>
+      ${d.endereco?`<div class="muted small mt-2">📍 ${d.endereco}</div>`:''}
+      ${d.responsavel_cliente?`<div class="muted small mt-2">👤 Contato de referência: ${d.responsavel_cliente}</div>`:''}
+    </div>
+    <form onsubmit="salvarPesquisaGeral(event)">
+      <div class="form-group">
+        <label class="form-label">Contato Realizado?</label>
+        <div class="toggle-row">
+          <button type="button" class="tog" id="gct-sim" onclick="togG('ct','sim')">✅ Sim</button>
+          <button type="button" class="tog" id="gct-nao" onclick="togG('ct','nao')">❌ Não Atendeu</button>
+        </div>
+      </div>
+      <div id="gbloco-sim" style="display:none">
+        <div class="row2">
+          <div class="form-group"><label class="form-label">Nome de Quem Atendeu</label><input class="form-ctrl" id="gnome-ct" placeholder="Ex: Maria Silva" value="${d.responsavel_cliente||''}" /></div>
+          <div class="form-group"><label class="form-label">Telefone do Cliente</label><input class="form-ctrl" id="gtel-ct" placeholder="(00) 00000-0000" value="${d.telefone||''}" /></div>
+        </div>
+        <div class="form-group"><label class="form-label">Data da Ligação</label><input class="form-ctrl" id="gdt-lig" type="date" value="${hoje()}" /></div>
+        <div class="form-group">
+          <label class="form-label">O Cliente Está com Algum Problema?</label>
+          <div class="toggle-row">
+            <button type="button" class="tog" id="gpr-sim" onclick="togG('pr','sim')">⚠️ Sim</button>
+            <button type="button" class="tog" id="gpr-nao" onclick="togG('pr','nao')">✅ Não</button>
+          </div>
+        </div>
+        <div class="form-group" id="ggrp-prob" style="display:none">
+          <label class="form-label">Descrição do Problema <span style="color:var(--red)">*</span></label>
+          <textarea class="form-ctrl" id="gdesc-prob" placeholder="Descreva o problema relatado…"></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Nota Geral do Serviço (0 – 10)</label>
+          <div class="nota-wrap">
+            <input type="range" id="gnota-sl" min="0" max="10" value="8" oninput="atualizaNotaG(this.value)" style="flex:1" />
+            <div style="text-align:center">
+              <div class="nota-num" id="gnota-num" style="color:var(--amber2)">8</div>
+              <div class="nota-cls" id="gnota-cls" style="color:var(--amber2)">😐 Neutro</div>
+            </div>
+          </div>
+          <div id="gaviso-sac" style="display:none;background:var(--red-bg);border:1px solid rgba(239,68,68,.3);color:var(--red2);padding:8px 12px;border-radius:8px;font-size:12px;margin-top:8px">
+            ⚠️ Nota abaixo de 8 — este cliente será enviado automaticamente para o SAC.
+          </div>
+        </div>
+        <div class="form-group"><label class="form-label">O que o Cliente Acha do Serviço / Observações</label><textarea class="form-ctrl" id="gobs" placeholder="Opinião do cliente, sugestões, elogios…"></textarea></div>
+        <div class="form-group">
+          <label class="form-label">Deseja Retorno?</label>
+          <div class="toggle-row">
+            <button type="button" class="tog" id="grt-sim" onclick="togG('rt','sim')">📞 Sim</button>
+            <button type="button" class="tog" id="grt-nao" onclick="togG('rt','nao')">✅ Não</button>
+          </div>
+        </div>
+        <div class="row2">
+          <div class="form-group"><label class="form-label">Operador</label><input class="form-ctrl" id="goperador" placeholder="Seu nome" value="${App.currentProfile?.nome||''}" /></div>
+          <div class="form-group"><label class="form-label">Status</label>
+            <select class="form-ctrl" id="gst-pesq">
+              <option value="respondido">Respondido</option>
+              <option value="concluido">Concluído</option>
+              <option value="remarcar">Remarcar</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div id="gbloco-nao" style="display:none">
+        <div class="row2">
+          <div class="form-group"><label class="form-label">Status</label>
+            <select class="form-ctrl" id="gst-nao">
+              <option value="nao_atendeu">Não Atendeu</option>
+              <option value="remarcar">Remarcar</option>
+            </select>
+          </div>
+          <div class="form-group"><label class="form-label">Operador</label><input class="form-ctrl" id="gop-nao" placeholder="Seu nome" value="${App.currentProfile?.nome||''}" /></div>
+        </div>
+        <div class="form-group"><label class="form-label">Observações</label><textarea class="form-ctrl" id="gobs-nao" placeholder="Motivo do não contato…"></textarea></div>
+      </div>
+      <button type="submit" class="btn btn-success" style="width:100%;margin-top:6px;justify-content:center">💾 Salvar Pesquisa</button>
+    </form>`;
+}
+
+function togG(g, v) {
+  App.togglesG[g] = v;
+  const sim=qs(`#g${g}-sim`), nao=qs(`#g${g}-nao`);
+  if (!sim||!nao) return;
+  sim.className='tog'+(v==='sim'?' yes':'');
+  nao.className='tog'+(v==='nao'?' no':'');
+  if (g==='ct') { show('gbloco-sim',v==='sim'); show('gbloco-nao',v==='nao'); }
+  if (g==='pr') show('ggrp-prob',v==='sim');
+}
+
+function atualizaNotaG(v) {
+  const n=+v, numEl=qs('#gnota-num'), clsEl=qs('#gnota-cls'), aviso=qs('#gaviso-sac');
+  if (!numEl) return;
+  const color=n>=9?'var(--green2)':n>=7?'var(--amber2)':'var(--red2)';
+  const label=n>=9?'😊 Satisfeito':n>=7?'😐 Neutro':'😞 Insatisfeito';
+  numEl.textContent=n; numEl.style.color=color;
+  clsEl.textContent=label; clsEl.style.color=color;
+  if (aviso) aviso.style.display = n<8?'block':'none';
+}
+
+async function salvarPesquisaGeral(e) {
+  e.preventDefault();
+  if (!App.clienteSel) return;
+  const contatoOk=App.togglesG['ct']==='sim';
+  const temProb=App.togglesG['pr']==='sim';
+  const retorno=App.togglesG['rt']==='sim';
+  if (!App.togglesG['ct']) { toast('Informe se o contato foi realizado.','err'); return; }
+  if (contatoOk && !App.togglesG['pr']) { toast('Informe se o cliente está com algum problema.','err'); return; }
+  if (contatoOk && temProb && !val('gdesc-prob').trim()) { toast('Descreva o problema relatado.','err'); return; }
+  if (contatoOk && !App.togglesG['rt']) { toast('Informe se deseja retorno.','err'); return; }
+  let status, operador, obs;
+  if (contatoOk) { status=val('gst-pesq')||'respondido'; operador=val('goperador'); obs=val('gobs'); }
+  else           { status=val('gst-nao')||'nao_atendeu'; operador=val('gop-nao');   obs=val('gobs-nao'); }
+  const nota = contatoOk ? +val('gnota-sl') : null;
+  const row = {
+    cliente_id: App.clienteSel.id, codigo_cliente: App.clienteSel.codigo_cliente,
+    nome_cliente: App.clienteSel.nome_cliente, telefone: contatoOk?val('gtel-ct')||null:null,
+    filial: App.clienteSel.filial, rota: App.clienteSel.rota||null, responsavel_sac: App.clienteSel.responsavel_sac||null,
+    contato_realizado: contatoOk, nome_contato: contatoOk?val('gnome-ct')||null:null,
+    teve_problema: contatoOk?temProb:false, descricao_problema: contatoOk&&temProb?val('gdesc-prob'):null,
+    nota_geral: nota, deseja_retorno: contatoOk?retorno:false,
+    observacoes: obs||null, data_ligacao: contatoOk?(val('gdt-lig')||hoje()):hoje(),
+    operador_responsavel: operador||null, status,
+  };
+  load(true);
+  try {
+    await insertPesquisaGeral(row);
+    await updateClienteCarteiraStatus(App.clienteSel.id, status);
+    const msg = nota!=null&&nota<8 ? '✅ Pesquisa salva! ⚠️ Nota baixa — enviado ao SAC automaticamente.' : '✅ Pesquisa salva com sucesso!';
+    toast(msg);
+    App.clienteSel=null;
+    await pagePesquisaGeral(qs('#page'));
     await atualizarBadges();
   } catch(er) { toast('Erro: '+er.message,'err'); }
   finally { load(false); }
@@ -2375,7 +2711,13 @@ async function salvarNovaEntrega(e) {
   e.preventDefault();
   const row={codigo_cliente:val('ne-cod').trim(),nome_cliente:val('ne-nome').trim(),filial:val('ne-fil').trim(),tecnico_responsavel:val('ne-tec').trim()||null,data_entrega:val('ne-dt'),tipo_servico:val('ne-tipo').trim()||null,rota:val('ne-rota').trim()||null,status_pesquisa:'pendente'};
   load(true);
-  try { await insertDeliveries([row]); closeModal(); toast('Entrega cadastrada! ✅'); await pageEntregas(qs('#page')); }
+  try {
+    await insertDeliveries([row]);
+    let msg = 'Entrega cadastrada! ✅';
+    try { await upsertClientesCarteiraDeEntregas([row]); msg = 'Entrega cadastrada! ✅ Cliente atualizado na Carteira' + (row.rota?` (Rota ${row.rota})`:'') + '.'; }
+    catch(ce) { console.warn('Não foi possível atualizar a Carteira de Clientes:', ce.message); }
+    closeModal(); toast(msg); await pageEntregas(qs('#page'));
+  }
   catch(er) { toast('Erro: '+er.message,'err'); }
   finally { load(false); }
 }
@@ -2437,7 +2779,10 @@ async function confirmarImport() {
   load(true);
   try {
     for(let i=0;i<App.importRows.length;i+=100) await insertDeliveries(App.importRows.slice(i,i+100));
-    closeModal(); toast(`${App.importRows.length} entregas importadas! ✅`); App.importRows=[];
+    let msg = `${App.importRows.length} entregas importadas! ✅`;
+    try { await upsertClientesCarteiraDeEntregas(App.importRows); msg += ' Clientes atualizados na Carteira, com a rota vinculada.'; }
+    catch(ce) { console.warn('Não foi possível atualizar a Carteira de Clientes:', ce.message); }
+    closeModal(); toast(msg); App.importRows=[];
     await pageEntregas(qs('#page'));
   } catch(e) { toast('Erro: '+e.message,'err'); }
   finally { load(false); }
@@ -2461,7 +2806,14 @@ function lerArquivo(file) {
         } else {
           const wb=XLSX.read(e.target.result,{type:'binary',cellDates:true});
           const ws=wb.Sheets[wb.SheetNames[0]];
-          resolve(XLSX.utils.sheet_to_json(ws,{defval:''}));
+          const raw=XLSX.utils.sheet_to_json(ws,{defval:''});
+          // Normaliza os nomes das colunas (planilhas exportadas de outros sistemas
+          // costumam ter espaços extras no cabeçalho, ex: "UF " em vez de "UF").
+          resolve(raw.map(r=>{
+            const o={};
+            for(const k in r) o[String(k).trim()]=r[k];
+            return o;
+          }));
         }
       } catch(err){reject(err);}
     };
@@ -2511,6 +2863,163 @@ async function irParaPesquisa(id) {
   App.deliveries=await getDeliveries({status:'pendente'});
   await goto('pesquisa');
   setTimeout(()=>selEntrega(id),200);
+}
+
+// ─── Carteira de Clientes: Cadastro / Importação ──────────────────────────────
+function openNovoCliente() {
+  openModal(`
+    <div class="modal-hd"><div class="modal-title">＋ Novo Cliente</div><button class="btn-x" onclick="closeModal()">✕</button></div>
+    <div class="modal-bd">
+      <form onsubmit="salvarNovoCliente(event)">
+        <div class="row2">
+          <div class="form-group"><label class="form-label">Código</label><input class="form-ctrl" id="nc-cod" required /></div>
+          <div class="form-group"><label class="form-label">Nome do Cliente</label><input class="form-ctrl" id="nc-nome" required /></div>
+        </div>
+        <div class="row2">
+          <div class="form-group"><label class="form-label">Filial</label><input class="form-ctrl" id="nc-fil" /></div>
+          <div class="form-group"><label class="form-label">Rota</label><input class="form-ctrl" id="nc-rota" placeholder="Ex: Rota A" required /></div>
+        </div>
+        <div class="row2">
+          <div class="form-group"><label class="form-label">Telefone</label><input class="form-ctrl" id="nc-tel" placeholder="(00) 00000-0000" /></div>
+          <div class="form-group"><label class="form-label">Responsável SAC</label><input class="form-ctrl" id="nc-resp" placeholder="Quem vai fazer o contato" /></div>
+        </div>
+        <div class="modal-ft" style="padding:0;margin-top:8px">
+          <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar</button>
+        </div>
+      </form>
+    </div>`);
+}
+
+async function salvarNovoCliente(e) {
+  e.preventDefault();
+  const row={codigo_cliente:val('nc-cod').trim(),nome_cliente:val('nc-nome').trim(),filial:val('nc-fil').trim()||null,rota:val('nc-rota').trim(),telefone:val('nc-tel').trim()||null,responsavel_sac:val('nc-resp').trim()||null,status_pesquisa:'pendente'};
+  load(true);
+  try { await insertClientesCarteira([row]); closeModal(); toast('Cliente cadastrado! ✅'); await pageCarteira(qs('#page')); }
+  catch(er) { toast('Erro: '+er.message,'err'); }
+  finally { load(false); }
+}
+
+function openImportCarteira() {
+  App.importCarteiraRows=[];
+  openModal(`
+    <div class="modal-hd"><div class="modal-title">⬆ Importar Carteira de Clientes</div><button class="btn-x" onclick="closeModal()">✕</button></div>
+    <div class="modal-bd">
+      <div class="import-box"><strong>Aceita o relatório que vocês já exportam</strong> (colunas como <em>Conta, Fantasia (Razão Social), Telefone 1, Bairro, Cidade…</em>) <strong>ou</strong> o modelo simples do sistema:<br>
+      <span class="import-cols">Código do Cliente · Nome do Cliente · Filial · Telefone</span><br>
+      <span class="muted small">O sistema reconhece as colunas automaticamente — não precisa reformatar a planilha. Logradouro, Vendedor, Instalador, Contrato e Empresa são ignorados na importação por serem dados sensíveis/internos.</span></div>
+      <div class="row2">
+        <div class="form-group"><label class="form-label">Rota deste arquivo <span style="color:var(--red)">*</span></label>
+          <input class="form-ctrl" id="impc-rota" placeholder="Ex: Rota F" required /></div>
+        <div class="form-group"><label class="form-label">Responsável SAC desta rota</label>
+          <input class="form-ctrl" id="impc-resp" placeholder="Opcional" /></div>
+      </div>
+      <div class="muted small mb12">Esse relatório geralmente já representa uma rota inteira e não tem coluna própria de "Rota" — por isso ela é definida uma vez aqui e aplicada a todos os clientes do arquivo.</div>
+      <div class="form-group"><label class="form-label">Arquivo CSV ou XLSX</label>
+        <input class="form-ctrl" type="file" accept=".csv,.xlsx,.xls" onchange="previewImportCarteira(this)" /></div>
+      <div id="impc-prev"></div>
+    </div>
+    <div class="modal-ft">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" id="btn-impc" style="display:none" onclick="confirmarImportCarteira()">✅ Importar</button>
+    </div>`);
+}
+
+async function previewImportCarteira(input) {
+  const file=input.files[0]; if(!file) return;
+  const prev=qs('#impc-prev');
+  if(!val('impc-rota').trim()){ prev.innerHTML='<div class="red small mt12">Informe a rota deste arquivo antes de selecionar a planilha.</div>'; input.value=''; return; }
+  prev.innerHTML='<div class="muted small mt12">Lendo…</div>';
+  try {
+    const rows=await lerArquivo(file);
+    const rotaImport = val('impc-rota').trim();
+    const respImport = val('impc-resp').trim()||null;
+    App.importCarteiraRows=rows.map(r=>{
+      // Só Bairro/Cidade/UF — sem Logradouro (endereço exato), Vendedor, Instalador
+      // ou Empresa, por serem dados sensíveis/internos que não entram na base.
+      const endereco=[
+        str(r,'Bairro','bairro'),
+        str(r,'Cidade','cidade'),
+        str(r,'UF','uf'),
+      ].filter(Boolean).join(', ');
+      return {
+        codigo_cliente:str(r,'Conta','Código do Cliente','codigo_cliente','Código','codigo'),
+        nome_cliente:str(r,'Fantasia (Razão Social)','Fantasia','Nome do Cliente','nome_cliente','Nome','nome'),
+        filial:str(r,'Filial','filial')||null,
+        rota:rotaImport,
+        telefone:str(r,'Telefone 1','Telefone','telefone','Fone','fone')||str(r,'Telefone 2')||null,
+        responsavel_sac:respImport,
+        responsavel_cliente:str(r,'Responsável','responsavel')||null,
+        endereco:endereco||null,
+        status_pesquisa:'pendente',
+      };
+    }).filter(r=>r.codigo_cliente&&r.nome_cliente);
+    if(!App.importCarteiraRows.length){prev.innerHTML='<div class="red small mt12">Nenhum registro válido. Confira se o arquivo tem as colunas de código e nome do cliente.</div>';return;}
+    prev.innerHTML=`<div class="green small mt12 mb16">✅ ${App.importCarteiraRows.length} registros encontrados — todos marcados como <strong>${rotaImport}</strong></div>
+      <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;max-height:180px;overflow-y:auto">
+        <table style="font-size:12px"><thead><tr style="background:var(--bg3)">
+          <th style="padding:8px 10px">Código</th><th style="padding:8px 10px">Nome</th>
+          <th style="padding:8px 10px">Rota</th><th style="padding:8px 10px">Telefone</th>
+        </tr></thead><tbody>${App.importCarteiraRows.slice(0,5).map(r=>`
+          <tr style="border-top:1px solid var(--border)">
+            <td style="padding:8px 10px;color:var(--text2)">${r.codigo_cliente}</td>
+            <td style="padding:8px 10px;color:var(--text2)">${r.nome_cliente}</td>
+            <td style="padding:8px 10px;color:var(--text3)">${r.rota}</td>
+            <td style="padding:8px 10px;color:var(--text3)">${r.telefone||'—'}</td>
+          </tr>`).join('')}
+          ${App.importCarteiraRows.length>5?`<tr><td colspan="4" style="padding:8px 10px;text-align:center;color:var(--text3)">… e mais ${App.importCarteiraRows.length-5}</td></tr>`:''}
+        </tbody></table></div>`;
+    show('btn-impc',true);
+  } catch(e) { prev.innerHTML=`<div class="red small mt12">Erro: ${e.message}</div>`; }
+}
+
+async function confirmarImportCarteira() {
+  if(!App.importCarteiraRows.length) return;
+  if(!val('impc-rota').trim()){ toast('Informe a rota deste arquivo.','err'); return; }
+  const rotaImport = val('impc-rota').trim();
+  const respImport = val('impc-resp').trim()||null;
+  App.importCarteiraRows.forEach(r=>{ r.rota=rotaImport; r.responsavel_sac=respImport; });
+  load(true);
+  try {
+    for(let i=0;i<App.importCarteiraRows.length;i+=100) await insertClientesCarteira(App.importCarteiraRows.slice(i,i+100));
+    closeModal(); toast(`${App.importCarteiraRows.length} clientes importados! ✅`); App.importCarteiraRows=[];
+    await pageCarteira(qs('#page'));
+  } catch(e) { toast('Erro: '+e.message,'err'); }
+  finally { load(false); }
+}
+
+async function verDetalhesCarteira(clienteId) {
+  load(true);
+  try {
+    const s=await getPesquisaGeralByCliente(clienteId);
+    if(!s){toast('Pesquisa não encontrada.','err');return;}
+    openModal(`
+      <div class="modal-hd"><div class="modal-title">👁 Detalhes da Pesquisa</div><button class="btn-x" onclick="closeModal()">✕</button></div>
+      <div class="modal-bd">
+        <div class="sac-info-grid">
+          <div><div class="form-label">Cliente</div><div class="bold">${s.nome_cliente||s.codigo_cliente}</div></div>
+          <div><div class="form-label">Filial</div><div>${s.filial||'—'}</div></div>
+          <div><div class="form-label">Rota</div><div>${s.rota||'—'}</div></div>
+          <div><div class="form-label">Nota</div>${chipNota(s.nota_geral)}</div>
+          <div><div class="form-label">Status</div>${badgeStatus(s.status)}</div>
+          <div><div class="form-label">Data</div><div>${fmtDate(s.data_ligacao)}</div></div>
+        </div>
+        ${s.enviado_para_sac?`<div style="background:var(--red-bg);border:1px solid rgba(239,68,68,.3);color:var(--red2);padding:10px 14px;border-radius:8px;margin:12px 0;font-size:13px">🆘 Este cliente foi enviado automaticamente para o SAC por nota baixa.</div>`:''}
+        ${s.descricao_problema?`<div class="form-group"><div class="form-label">Problema</div><div class="muted">${s.descricao_problema}</div></div>`:''}
+        ${s.observacoes?`<div class="form-group"><div class="form-label">Opinião do Cliente / Observações</div><div class="muted">${s.observacoes}</div></div>`:''}
+        <div class="row2">
+          <div><div class="form-label">Operador</div><div>${s.operador_responsavel||'—'}</div></div>
+          <div><div class="form-label">Retorno?</div><div>${s.deseja_retorno?'📞 Sim':'Não'}</div></div>
+        </div>
+      </div>
+      <div class="modal-ft"><button class="btn btn-ghost" onclick="closeModal()">Fechar</button></div>`);
+  } finally { load(false); }
+}
+
+async function irParaPesquisaGeral(id) {
+  App.carteira=await getClientesCarteira({status:'pendente'});
+  await goto('pesq-geral');
+  setTimeout(()=>selCliente(id),200);
 }
 
 async function fazerLogout() {
