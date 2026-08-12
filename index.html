@@ -3138,6 +3138,15 @@ async function previewImportCarteira(input) {
     }).filter(r=>r.codigo_cliente&&r.nome_cliente);
     if(!App.importCarteiraRows.length){prev.innerHTML='<div class="red small mt12">Nenhum registro válido. Confira se o arquivo tem as colunas de código e nome do cliente.</div>';return;}
 
+    // Se o mesmo código de cliente aparecer mais de uma vez dentro do PRÓPRIO
+    // arquivo, mantém só a última ocorrência — evita erro de duplicidade ao
+    // enviar o mesmo código duas vezes num único lote de importação.
+    const porCodigo = new Map();
+    App.importCarteiraRows.forEach(r => porCodigo.set(r.codigo_cliente, r));
+    const totalLido = App.importCarteiraRows.length;
+    App.importCarteiraRows = Array.from(porCodigo.values());
+    const duplicadosNoArquivo = totalLido - App.importCarteiraRows.length;
+
     // Avisa quando um cliente já existe cadastrado em outra rota — ao importar,
     // ele será atualizado (não duplicado) e passa a valer a rota deste arquivo.
     let trocandoRota = 0;
@@ -3147,6 +3156,7 @@ async function previewImportCarteira(input) {
     } catch(_) { /* aviso é best-effort; se falhar, segue sem ele */ }
 
     prev.innerHTML=`<div class="green small mt12 mb16">✅ ${App.importCarteiraRows.length} registros encontrados — todos marcados como <strong>${rotaImport}</strong></div>
+      ${duplicadosNoArquivo>0?`<div class="small mt12 mb12" style="color:var(--amber2)">⚠️ ${duplicadosNoArquivo} código${duplicadosNoArquivo>1?'s':''} de cliente aparec${duplicadosNoArquivo>1?'iam':'ia'} repetido${duplicadosNoArquivo>1?'s':''} dentro do próprio arquivo — mantivemos só a última ocorrência de cada.</div>`:''}
       ${trocandoRota>0?`<div class="small mt12 mb12" style="color:var(--amber2)">⚠️ ${trocandoRota} desse${trocandoRota>1?'s':''} já ${trocandoRota>1?'estão':'está'} cadastrado${trocandoRota>1?'s':''} em outra rota — ${trocandoRota>1?'serão movidos':'será movido'} para <strong>${rotaImport}</strong> (os dados desses clientes serão atualizados, não duplicados).</div>`:''}
       <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;max-height:180px;overflow-y:auto">
         <table style="font-size:12px"><thead><tr style="background:var(--bg3)">
