@@ -378,16 +378,33 @@ function initSupabase() {
   sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 }
 
+// O Supabase/PostgREST só devolve até 1000 linhas por consulta, mesmo sem
+// filtro nenhum — sem isso, listas grandes (como a Carteira de Clientes com
+// várias rotas importadas) ficam cortadas silenciosamente em 1000 registros.
+// Esta função busca "página por página" até trazer tudo.
+async function fetchAllRows(buildQuery) {
+  const PAGE = 1000;
+  let from = 0, all = [];
+  while (true) {
+    const { data, error } = await buildQuery().range(from, from + PAGE - 1);
+    if (error) throw error;
+    all = all.concat(data || []);
+    if (!data || data.length < PAGE) break;
+    from += PAGE;
+  }
+  return all;
+}
+
 async function getDeliveries(filters = {}) {
-  let q = sb.from('service_deliveries').select('*').order('created_at', { ascending: false });
-  if (filters.status)   q = q.eq('status_pesquisa', filters.status);
-  if (filters.filial)   q = q.eq('filial', filters.filial);
-  if (filters.tecnico)  q = q.eq('tecnico_responsavel', filters.tecnico);
-  if (filters.dateFrom) q = q.gte('data_entrega', filters.dateFrom);
-  if (filters.dateTo)   q = q.lte('data_entrega', filters.dateTo);
-  const { data, error } = await q;
-  if (error) throw error;
-  return data || [];
+  return fetchAllRows(() => {
+    let q = sb.from('service_deliveries').select('*').order('created_at', { ascending: false });
+    if (filters.status)   q = q.eq('status_pesquisa', filters.status);
+    if (filters.filial)   q = q.eq('filial', filters.filial);
+    if (filters.tecnico)  q = q.eq('tecnico_responsavel', filters.tecnico);
+    if (filters.dateFrom) q = q.gte('data_entrega', filters.dateFrom);
+    if (filters.dateTo)   q = q.lte('data_entrega', filters.dateTo);
+    return q;
+  });
 }
 
 async function insertDeliveries(rows) {
@@ -402,18 +419,18 @@ async function updateDeliveryStatus(id, status) {
 }
 
 async function getSatisfactions(filters = {}) {
-  let q = sb.from('customer_satisfaction').select('*').order('created_at', { ascending: false });
-  if (filters.filial)        q = q.eq('filial', filters.filial);
-  if (filters.tecnico)       q = q.eq('tecnico_responsavel', filters.tecnico);
-  if (filters.status)        q = q.eq('status', filters.status);
-  if (filters.dateFrom)      q = q.gte('data_ligacao', filters.dateFrom);
-  if (filters.dateTo)        q = q.lte('data_ligacao', filters.dateTo);
-  if (filters.teveProblem)   q = q.eq('teve_problema', true);
-  if (filters.desejaRetorno) q = q.eq('deseja_retorno', true);
-  if (filters.notaMax != null) q = q.lte('nota_atendimento', filters.notaMax);
-  const { data, error } = await q;
-  if (error) throw error;
-  return data || [];
+  return fetchAllRows(() => {
+    let q = sb.from('customer_satisfaction').select('*').order('created_at', { ascending: false });
+    if (filters.filial)        q = q.eq('filial', filters.filial);
+    if (filters.tecnico)       q = q.eq('tecnico_responsavel', filters.tecnico);
+    if (filters.status)        q = q.eq('status', filters.status);
+    if (filters.dateFrom)      q = q.gte('data_ligacao', filters.dateFrom);
+    if (filters.dateTo)        q = q.lte('data_ligacao', filters.dateTo);
+    if (filters.teveProblem)   q = q.eq('teve_problema', true);
+    if (filters.desejaRetorno) q = q.eq('deseja_retorno', true);
+    if (filters.notaMax != null) q = q.lte('nota_atendimento', filters.notaMax);
+    return q;
+  });
 }
 
 async function insertSatisfaction(row) {
@@ -430,16 +447,16 @@ async function getSatisfactionByDelivery(deliveryId) {
 
 // ─── Manutenção: Data Layer ───────────────────────────────────────────────────
 async function getMaintenanceOrders(filters = {}) {
-  let q = sb.from('maintenance_orders').select('*').order('created_at', { ascending: false });
-  if (filters.status)   q = q.eq('status_pesquisa', filters.status);
-  if (filters.filial)   q = q.eq('filial', filters.filial);
-  if (filters.tecnico)  q = q.eq('tecnico_responsavel', filters.tecnico);
-  if (filters.tipo)     q = q.eq('tipo_manutencao', filters.tipo);
-  if (filters.dateFrom) q = q.gte('data_execucao', filters.dateFrom);
-  if (filters.dateTo)   q = q.lte('data_execucao', filters.dateTo);
-  const { data, error } = await q;
-  if (error) throw error;
-  return data || [];
+  return fetchAllRows(() => {
+    let q = sb.from('maintenance_orders').select('*').order('created_at', { ascending: false });
+    if (filters.status)   q = q.eq('status_pesquisa', filters.status);
+    if (filters.filial)   q = q.eq('filial', filters.filial);
+    if (filters.tecnico)  q = q.eq('tecnico_responsavel', filters.tecnico);
+    if (filters.tipo)     q = q.eq('tipo_manutencao', filters.tipo);
+    if (filters.dateFrom) q = q.gte('data_execucao', filters.dateFrom);
+    if (filters.dateTo)   q = q.lte('data_execucao', filters.dateTo);
+    return q;
+  });
 }
 async function insertMaintenanceOrders(rows) {
   const { data, error } = await sb.from('maintenance_orders').insert(rows).select();
@@ -451,15 +468,15 @@ async function updateMaintenanceStatus(id, status) {
   if (error) throw error;
 }
 async function getMaintenanceSatisfactions(filters = {}) {
-  let q = sb.from('maintenance_satisfaction').select('*').order('created_at', { ascending: false });
-  if (filters.filial)   q = q.eq('filial', filters.filial);
-  if (filters.tecnico)  q = q.eq('tecnico_responsavel', filters.tecnico);
-  if (filters.status)   q = q.eq('status', filters.status);
-  if (filters.dateFrom) q = q.gte('data_ligacao', filters.dateFrom);
-  if (filters.dateTo)   q = q.lte('data_ligacao', filters.dateTo);
-  const { data, error } = await q;
-  if (error) throw error;
-  return data || [];
+  return fetchAllRows(() => {
+    let q = sb.from('maintenance_satisfaction').select('*').order('created_at', { ascending: false });
+    if (filters.filial)   q = q.eq('filial', filters.filial);
+    if (filters.tecnico)  q = q.eq('tecnico_responsavel', filters.tecnico);
+    if (filters.status)   q = q.eq('status', filters.status);
+    if (filters.dateFrom) q = q.gte('data_ligacao', filters.dateFrom);
+    if (filters.dateTo)   q = q.lte('data_ligacao', filters.dateTo);
+    return q;
+  });
 }
 async function insertMaintenanceSatisfaction(row) {
   const { data, error } = await sb.from('maintenance_satisfaction').insert([row]).select();
@@ -474,13 +491,13 @@ async function getManutSatByOrder(orderId) {
 
 // ─── Carteira de Clientes: Data Layer ─────────────────────────────────────────
 async function getClientesCarteira(filters = {}) {
-  let q = sb.from('clientes_carteira').select('*').order('created_at', { ascending: false });
-  if (filters.status)  q = q.eq('status_pesquisa', filters.status);
-  if (filters.filial)  q = q.eq('filial', filters.filial);
-  if (filters.rota)    q = q.eq('rota', filters.rota);
-  const { data, error } = await q;
-  if (error) throw error;
-  return data || [];
+  return fetchAllRows(() => {
+    let q = sb.from('clientes_carteira').select('*').order('created_at', { ascending: false });
+    if (filters.status)  q = q.eq('status_pesquisa', filters.status);
+    if (filters.filial)  q = q.eq('filial', filters.filial);
+    if (filters.rota)    q = q.eq('rota', filters.rota);
+    return q;
+  });
 }
 async function insertClientesCarteira(rows) {
   const { data, error } = await sb.from('clientes_carteira').insert(rows).select();
@@ -537,18 +554,18 @@ async function upsertClientesCarteiraDeEntregas(entregas) {
 
 // ─── Pesquisa de Satisfação Geral: Data Layer ─────────────────────────────────
 async function getPesquisasGerais(filters = {}) {
-  let q = sb.from('pesquisa_satisfacao_geral').select('*').order('created_at', { ascending: false });
-  if (filters.filial)        q = q.eq('filial', filters.filial);
-  if (filters.rota)          q = q.eq('rota', filters.rota);
-  if (filters.status)        q = q.eq('status', filters.status);
-  if (filters.dateFrom)      q = q.gte('data_ligacao', filters.dateFrom);
-  if (filters.dateTo)        q = q.lte('data_ligacao', filters.dateTo);
-  if (filters.teveProblem)   q = q.eq('teve_problema', true);
-  if (filters.desejaRetorno) q = q.eq('deseja_retorno', true);
-  if (filters.notaMax != null) q = q.lte('nota_geral', filters.notaMax);
-  const { data, error } = await q;
-  if (error) throw error;
-  return data || [];
+  return fetchAllRows(() => {
+    let q = sb.from('pesquisa_satisfacao_geral').select('*').order('created_at', { ascending: false });
+    if (filters.filial)        q = q.eq('filial', filters.filial);
+    if (filters.rota)          q = q.eq('rota', filters.rota);
+    if (filters.status)        q = q.eq('status', filters.status);
+    if (filters.dateFrom)      q = q.gte('data_ligacao', filters.dateFrom);
+    if (filters.dateTo)        q = q.lte('data_ligacao', filters.dateTo);
+    if (filters.teveProblem)   q = q.eq('teve_problema', true);
+    if (filters.desejaRetorno) q = q.eq('deseja_retorno', true);
+    if (filters.notaMax != null) q = q.lte('nota_geral', filters.notaMax);
+    return q;
+  });
 }
 async function insertPesquisaGeral(row) {
   const { data, error } = await sb.from('pesquisa_satisfacao_geral').insert([row]).select();
@@ -622,15 +639,15 @@ const AuthService = {
 
 const SacService = {
   async getAtendimentos(filters = {}) {
-    let q = sb.from('sac_atendimentos').select('*').order('created_at', { ascending: false });
-    if (filters.status && filters.status !== 'todos') q = q.eq('status', filters.status);
-    if (filters.responsavel) q = q.eq('responsavel_id', filters.responsavel);
-    if (filters.dateFrom)    q = q.gte('data_encaminhamento', filters.dateFrom);
-    if (filters.dateTo)      q = q.lte('data_encaminhamento', filters.dateTo);
-    if (filters.notaMax != null) q = q.lte('nota', filters.notaMax);
-    const { data, error } = await q;
-    if (error) throw error;
-    return data || [];
+    return fetchAllRows(() => {
+      let q = sb.from('sac_atendimentos').select('*').order('created_at', { ascending: false });
+      if (filters.status && filters.status !== 'todos') q = q.eq('status', filters.status);
+      if (filters.responsavel) q = q.eq('responsavel_id', filters.responsavel);
+      if (filters.dateFrom)    q = q.gte('data_encaminhamento', filters.dateFrom);
+      if (filters.dateTo)      q = q.lte('data_encaminhamento', filters.dateTo);
+      if (filters.notaMax != null) q = q.lte('nota', filters.notaMax);
+      return q;
+    });
   },
   async getAtendimento(id) {
     const [{ data: atend, error: e1 }, { data: hist, error: e2 }] = await Promise.all([
@@ -687,9 +704,7 @@ const SacService = {
     if (error) throw error;
   },
   async getStats() {
-    const { data, error } = await sb.from('sac_atendimentos').select('status, nota, data_proximo_retorno');
-    if (error) throw error;
-    const atends = data || [];
+    const atends = await fetchAllRows(() => sb.from('sac_atendimentos').select('status, nota, data_proximo_retorno'));
     const hoje = new Date().toISOString();
     return {
       total:              atends.length,
@@ -1440,10 +1455,26 @@ function sectionDivider(icon, title, subtitle, bgColor='var(--blue-bg)', iconCol
   </div>`;
 }
 
+// Calcula o NPS (Net Promoter Score) de uma lista de registros com nota 0-10.
+// Faixas: 0-6 Insatisfeito/Detrator · 7-8 Neutro · 9-10 Satisfeito/Promotor.
+function calcNps(items, field) {
+  const comNota = (items || []).filter(s => s[field] != null);
+  const promoters  = comNota.filter(s => s[field] >= 9).length;
+  const neutros    = comNota.filter(s => s[field] >= 7 && s[field] <= 8).length;
+  const detractors = comNota.filter(s => s[field] <= 6).length;
+  const total = comNota.length;
+  const score = total > 0 ? Math.round(((promoters - detractors) / total) * 100) : 0;
+  const cls   = score >= 50 ? 'nps-good' : score >= 0 ? 'nps-ok' : 'nps-bad';
+  const emoji = score >= 50 ? '🟢' : score >= 0 ? '🟡' : '🔴';
+  const label = score >= 50 ? 'Excelente' : score >= 0 ? 'Razoável' : 'Crítico';
+  return { total, promoters, neutros, detractors, score, cls, emoji, label };
+}
+
 async function pageDashboard(el) {
-  const [stats, sacStats, sats, manutOrders, manutSats] = await Promise.all([
+  const [stats, sacStats, sats, manutOrders, manutSats, carteira, pesquisasGerais] = await Promise.all([
     getDashboardStats(), SacService.getStats(), getSatisfactions(),
     getMaintenanceOrders(), getMaintenanceSatisfactions(),
+    getClientesCarteira(), getPesquisasGerais(),
   ]);
 
   // ── Consolidated calcs ──
@@ -1509,6 +1540,36 @@ async function pageDashboard(el) {
     color: i>=9?'var(--green2)':i>=7?'var(--amber2)':i>=5?'var(--amber)':'var(--red2)',
   }));
 
+  // ── Pesquisa Geral (Carteira de Clientes por Rota) stats ──
+  const pgNpsData = calcNps(pesquisasGerais, 'nota_geral');
+  const pgComNota = pesquisasGerais.filter(s => s.nota_geral != null);
+  const pgMedia = pgComNota.length > 0 ? (pgComNota.reduce((a,b)=>a+b.nota_geral,0)/pgComNota.length).toFixed(1) : '—';
+  const pgRespondidas = pesquisasGerais.filter(s => ['respondido','concluido'].includes(s.status)).length;
+  const pgPendentesCarteira = carteira.filter(c => c.status_pesquisa === 'pendente').length;
+  const pgTaxaResposta = carteira.length > 0 ? ((pgRespondidas / carteira.length) * 100).toFixed(1) : 0;
+  const pgDistNotas = [0,0,0,0,0,0,0,0,0,0,0];
+  pgComNota.forEach(s => pgDistNotas[s.nota_geral]++);
+  const pgBarData = pgDistNotas.map((v,i) => ({
+    key: i, label: String(i), value: v,
+    color: i>=9?'var(--green2)':i>=7?'var(--amber2)':i>=5?'var(--amber)':'var(--red2)',
+  }));
+  // Ranking "quem mais fez pesquisa" — por operador, ordenado por volume de
+  // pesquisas realizadas (não pela média das notas).
+  const pgOpMap = {};
+  pesquisasGerais.filter(s => s.operador_responsavel).forEach(s => {
+    const op = s.operador_responsavel;
+    if (!pgOpMap[op]) pgOpMap[op] = { total: 0, notas: [] };
+    pgOpMap[op].total++;
+    if (s.nota_geral != null) pgOpMap[op].notas.push(s.nota_geral);
+  });
+  const rankingOperadoresPG = Object.entries(pgOpMap)
+    .map(([nome, d]) => ({
+      nome, total: d.total,
+      media: d.notas.length > 0 ? +(d.notas.reduce((a,b)=>a+b,0)/d.notas.length).toFixed(1) : null,
+    }))
+    .sort((a, b) => b.total - a.total);
+  const pgMaxOperadorTotal = rankingOperadoresPG.length > 0 ? rankingOperadoresPG[0].total : 0;
+
   // Guarda tudo já calculado para trocar de aba sem precisar buscar de novo.
   App.dashCtx = {
     stats, sacStats, sats, manutOrders, manutSats,
@@ -1516,6 +1577,8 @@ async function pageDashboard(el) {
     npsScore, npsCls, npsEmoji, sacPendTotal,
     mPend, mResp, mNotas, mMedia, mProb,
     linePoints, statusCounts, barData, mBarData,
+    carteira, pesquisasGerais, pgNpsData, pgMedia, pgRespondidas, pgPendentesCarteira,
+    pgTaxaResposta, pgBarData, rankingOperadoresPG, pgMaxOperadorTotal,
   };
 
   el.innerHTML = `<div class="dash-tabs" id="dash-tabs"></div><div id="dash-tab-content"></div>`;
@@ -1523,10 +1586,11 @@ async function pageDashboard(el) {
 }
 
 const DASH_TABS = [
-  { id:'resumo',       icon:'📊', label:'Resumo Geral' },
-  { id:'entregas',     icon:'📦', label:'Entregas' },
-  { id:'manutencoes',  icon:'🔧', label:'Manutenções' },
-  { id:'consolidado',  icon:'📈', label:'Consolidado' },
+  { id:'resumo',         icon:'📊', label:'Resumo Geral' },
+  { id:'entregas',       icon:'📦', label:'Entregas' },
+  { id:'manutencoes',    icon:'🔧', label:'Manutenções' },
+  { id:'pesquisa-geral', icon:'🗣️', label:'Pesquisa Geral' },
+  { id:'consolidado',    icon:'📈', label:'Consolidado' },
 ];
 
 function renderDashboardTab(tab) {
@@ -1536,7 +1600,7 @@ function renderDashboardTab(tab) {
   qs('#dash-tabs').innerHTML = DASH_TABS.map(t =>
     `<button class="dash-tab ${t.id===tab?'active':''}" onclick="renderDashboardTab('${t.id}')">${t.icon} ${t.label}</button>`
   ).join('');
-  const renderers = { resumo:renderDashResumo, entregas:renderDashEntregas, manutencoes:renderDashManut, consolidado:renderDashConsolidado };
+  const renderers = { resumo:renderDashResumo, entregas:renderDashEntregas, manutencoes:renderDashManut, 'pesquisa-geral':renderDashPesquisaGeral, consolidado:renderDashConsolidado };
   qs('#dash-tab-content').innerHTML = (renderers[tab] || renderDashResumo)(c);
 }
 
@@ -1620,6 +1684,48 @@ function renderDashManut(c) {
       <div class="chart-card" style="--chart-accent:var(--cyan);--chart-accent2:var(--purple)">
         <div class="chart-title"><span class="ct-icon">🏢</span>Ranking Filiais<span class="muted small" style="margin-left:auto">${stats.rankingFiliais.length}</span></div>
         ${stats.rankingFiliais.length===0?emptyState('🏢','Sem dados'):stats.rankingFiliais.slice(0,5).map((f,i)=>rankItem(f,i)).join('')}
+      </div>
+    </div>`;
+}
+
+function renderDashPesquisaGeral(c) {
+  const { carteira, pesquisasGerais, pgNpsData, pgMedia, pgRespondidas, pgPendentesCarteira,
+          pgTaxaResposta, pgBarData, rankingOperadoresPG, pgMaxOperadorTotal } = c;
+  return `
+    ${sectionDivider('🗣️','Pesquisa de Satisfação Geral',`${carteira.length} clientes na carteira · ${pesquisasGerais.length} pesquisas realizadas`,'var(--purple-bg)','var(--purple2)')}
+    <div class="kpi-grid dash-section mb20" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
+      ${kpi('purple','⭐','Média',pgMedia,'nota geral')}
+      ${kpi('green','😊','Satisfeitos',pgNpsData.promoters,'nota 9 a 10')}
+      ${kpi('amber','😐','Neutros',pgNpsData.neutros,'nota 7 a 8')}
+      ${kpi('red','😞','Insatisfeitos',pgNpsData.detractors,'nota 0 a 6')}
+      ${kpi('blue','⏳','Pendentes',pgPendentesCarteira,'aguardando contato')}
+    </div>
+    <div class="dash-grid dash-g3 mb20 dash-section">
+      <div class="chart-card" style="--chart-accent:var(--purple);--chart-accent2:var(--cyan)">
+        <div class="chart-title"><span class="ct-icon">🎯</span>NPS — Pesquisa Geral</div>
+        <div style="text-align:center;padding:12px 0">
+          <div style="font-size:48px;font-weight:800;font-family:var(--mono);color:${pgNpsData.score>=50?'var(--green2)':pgNpsData.score>=0?'var(--amber2)':'var(--red2)'}">${pgNpsData.total>0?pgNpsData.score:'—'}</div>
+          <div style="margin-top:8px">${pgNpsData.total>0?`<span class="nps-tag ${pgNpsData.cls}">${pgNpsData.emoji} ${pgNpsData.label}</span>`:'<span class="muted small">Sem dados suficientes</span>'}</div>
+          <div class="muted small" style="margin-top:10px">${pgNpsData.promoters} promotores · ${pgNpsData.neutros} neutros · ${pgNpsData.detractors} detratores</div>
+        </div>
+      </div>
+      <div class="chart-card" style="--chart-accent:var(--amber);--chart-accent2:var(--green)">
+        <div class="chart-title"><span class="ct-icon">📊</span>Distribuição de Notas</div>
+        ${renderBarChartSVG(pgBarData)}
+      </div>
+      <div class="chart-card" style="--chart-accent:var(--purple);--chart-accent2:var(--blue)">
+        <div class="chart-title"><span class="ct-icon">🏆</span>Quem Mais Fez Pesquisa<span class="muted small" style="margin-left:auto">${rankingOperadoresPG.length}</span></div>
+        ${rankingOperadoresPG.length===0?emptyState('🗣️','Sem dados'):rankingOperadoresPG.slice(0,5).map((t,i)=>rankItemVolume(t,i,pgMaxOperadorTotal)).join('')}
+      </div>
+    </div>
+    <div class="dash-grid dash-g1 mb20 dash-section">
+      <div class="chart-card chart-card-wide" style="--chart-accent:var(--blue);--chart-accent2:var(--purple)">
+        <div class="chart-title"><span class="ct-icon">📞</span>Resumo de Contato</div>
+        <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
+          ${kpi('blue','📋','Total na Carteira',carteira.length,'clientes cadastrados')}
+          ${kpi('green','✅','Respondidas',pgRespondidas,`${pgTaxaResposta}% de taxa de resposta`)}
+          ${kpi('purple','☎️','Pesquisas Feitas',pesquisasGerais.length,'total de contatos registrados')}
+        </div>
       </div>
     </div>`;
 }
@@ -3244,6 +3350,14 @@ function rankItem(t,i){
   const color=t.media>=9?'var(--green2)':t.media>=7?'var(--amber2)':'var(--red2)';
   const pct=(t.media/10*100).toFixed(0);
   return`<div class="rank-item"><div class="rank-pos ${cls}">${i+1}</div><div style="flex:1"><div class="rank-name">${t.nome}</div><div class="rank-sub">${t.total} pesquisa${t.total>1?'s':''}</div><div class="prog"><div class="prog-fill" style="width:${pct}%;background:${color}"></div></div></div><div class="rank-media" style="color:${color}">${t.media}</div></div>`;
+}
+// Ranking por volume (quantidade de pesquisas), não por média — usado em
+// "Quem Mais Fez Pesquisa". A barra é dimensionada pelo total, e a média
+// (quando existir) aparece como informação secundária.
+function rankItemVolume(t,i,maxTotal){
+  const cls=i===0?'rp-1':i===1?'rp-2':i===2?'rp-3':'rp-n';
+  const pct=maxTotal>0?(t.total/maxTotal*100).toFixed(0):0;
+  return`<div class="rank-item"><div class="rank-pos ${cls}">${i+1}</div><div style="flex:1"><div class="rank-name">${t.nome}</div><div class="rank-sub">${t.media!=null?`média ${t.media}`:'sem notas'}</div><div class="prog"><div class="prog-fill" style="width:${pct}%;background:var(--purple2)"></div></div></div><div class="rank-media" style="color:var(--purple2)">${t.total}</div></div>`;
 }
 function chipNota(n){
   if(n==null)return'<span class="nota-chip n-nil">—</span>';
